@@ -1,0 +1,27 @@
+name: CI
+
+# Typecheck, build, and test on pull requests and non-main pushes. (main is covered by the
+# publish workflow, which runs the same checks before releasing.)
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test # live tests auto-skip without a cached session

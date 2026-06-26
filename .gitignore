@@ -1,0 +1,11 @@
+# Node / TypeScript
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Claudeleaf local state (session + browser profile)
+.claudeleaf/
+
+# OS / tooling
+.DS_Store
+.vitest/

@@ -1,17 +1,36 @@
 {
   "name": "claudeleaf",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bring Claude (and any agent) into Overleaf: a reliable bridge that drives the Overleaf web editor in real time via an SDK, CLI, and MCP server.",
   "type": "module",
   "license": "MIT",
   "author": "Louis Jannett",
-  "keywords": ["overleaf", "latex", "mcp", "claude", "automation", "sharejs", "collaboration"],
-  "engines": { "node": ">=20" },
-  "bin": { "claudeleaf": "dist/cli.js" },
+  "keywords": [
+    "overleaf",
+    "latex",
+    "mcp",
+    "claude",
+    "automation",
+    "sharejs",
+    "collaboration"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "claudeleaf": "dist/cli.js"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",

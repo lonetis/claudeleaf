@@ -36,6 +36,7 @@ export function createServer(): McpServer {
     {
       description: "List every Overleaf project the signed-in account can access (id, name, access).",
       inputSchema: {},
+      annotations: { readOnlyHint: true },
     },
     async () => result(await getClient().listProjects()),
   );
@@ -45,6 +46,7 @@ export function createServer(): McpServer {
     {
       description: "Get metadata about a project (name, owner, members, compiler). `project` is an id or name.",
       inputSchema: { project: z.string() },
+      annotations: { readOnlyHint: true },
     },
     async ({ project }) => result(await getClient().projectInfo(project)),
   );
@@ -54,6 +56,7 @@ export function createServer(): McpServer {
     {
       description: "List the documents in a project. Set includeFiles=true to also list binary files.",
       inputSchema: { project: z.string(), includeFiles: z.boolean().optional() },
+      annotations: { readOnlyHint: true },
     },
     async ({ project, includeFiles }) =>
       result(await getClient().listDocuments(project, includeFiles ?? false)),
@@ -64,6 +67,7 @@ export function createServer(): McpServer {
     {
       description: "Read the full text of a document, identified by its path (e.g. 'main.tex') or id.",
       inputSchema: { project: z.string(), path: z.string() },
+      annotations: { readOnlyHint: true },
     },
     async ({ project, path }) => result(await getClient().readDocument(project, path)),
   );
@@ -73,6 +77,7 @@ export function createServer(): McpServer {
     {
       description: "Find every occurrence of a literal string in a document. Returns offset/line/column.",
       inputSchema: { project: z.string(), path: z.string(), query: z.string() },
+      annotations: { readOnlyHint: true },
     },
     async ({ project, path, query }) => result(await getClient().search(project, path, query)),
   );
@@ -82,6 +87,7 @@ export function createServer(): McpServer {
     {
       description: "Insert text at a 0-based line and column. Collaborators see the edit live.",
       inputSchema: { project: z.string(), path: z.string(), line: z.number().int(), column: z.number().int(), text: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ project, path, line, column, text }) => {
       const doc = await getClient().insert(project, path, line, column, text);
@@ -94,6 +100,7 @@ export function createServer(): McpServer {
     {
       description: "Append text to the end of a document (a newline is added if needed).",
       inputSchema: { project: z.string(), path: z.string(), text: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ project, path, text }) => {
       const doc = await getClient().append(project, path, text);
@@ -106,6 +113,7 @@ export function createServer(): McpServer {
     {
       description: "Replace literal occurrences of `old` with `new`. count=0 replaces all.",
       inputSchema: { project: z.string(), path: z.string(), old: z.string(), new: z.string(), count: z.number().int().optional() },
+      annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ project, path, old, new: newStr, count }) => {
       const n = await getClient().replaceText(project, path, old, newStr, count ?? 0);
@@ -118,6 +126,7 @@ export function createServer(): McpServer {
     {
       description: "Replace the text between character offsets [start, end) with `text`.",
       inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int(), text: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ project, path, start, end, text }) => {
       const doc = await getClient().replaceRange(project, path, start, end, text);
@@ -130,6 +139,7 @@ export function createServer(): McpServer {
     {
       description: "Delete the text between character offsets [start, end).",
       inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int() },
+      annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ project, path, start, end }) => {
       const doc = await getClient().deleteRange(project, path, start, end);
@@ -142,6 +152,7 @@ export function createServer(): McpServer {
     {
       description: "Delete 0-based lines startLine..endLine (inclusive).",
       inputSchema: { project: z.string(), path: z.string(), startLine: z.number().int(), endLine: z.number().int() },
+      annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ project, path, startLine, endLine }) => {
       const doc = await getClient().deleteLines(project, path, startLine, endLine);
@@ -154,6 +165,7 @@ export function createServer(): McpServer {
     {
       description: "Replace a document's entire contents with `content` (sent as a minimal diff).",
       inputSchema: { project: z.string(), path: z.string(), content: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ project, path, content }) => {
       const doc = await getClient().setText(project, path, content);
@@ -166,6 +178,7 @@ export function createServer(): McpServer {
     {
       description: "Create a new document. `folder` is a folder path, or omit for the project root.",
       inputSchema: { project: z.string(), name: z.string(), folder: z.string().optional() },
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ project, name, folder }) => {
       const res = await getClient().createDocument(project, name, folder);
@@ -178,6 +191,7 @@ export function createServer(): McpServer {
     {
       description: "Delete a document or file from a project.",
       inputSchema: { project: z.string(), path: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ project, path }) => {
       await getClient().deleteDocument(project, path);
@@ -190,6 +204,7 @@ export function createServer(): McpServer {
     {
       description: "Rename a document or file.",
       inputSchema: { project: z.string(), path: z.string(), newName: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ project, path, newName }) => {
       await getClient().renameDocument(project, path, newName);
@@ -202,6 +217,7 @@ export function createServer(): McpServer {
     {
       description: "List users currently connected to a project (name, email, cursor position).",
       inputSchema: { project: z.string() },
+      annotations: { readOnlyHint: true },
     },
     async ({ project }) => result(await getClient().getConnectedUsers(project)),
   );
@@ -220,6 +236,7 @@ export function createServer(): McpServer {
         stopOnFirstError: z.boolean().optional(),
         includeLog: z.boolean().optional(),
       },
+      annotations: { readOnlyHint: true, idempotentHint: false },
     },
     async ({ project, draft, stopOnFirstError, includeLog }) => {
       const r = await getClient().compile(project, { draft, stopOnFirstError });

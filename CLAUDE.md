@@ -188,7 +188,16 @@ state; instead:
 - **Zero required config.** Everything defaults; optional env vars only for advanced use.
 - **Omit the ShareJS hash** (see above) — turns a fragile, fatal check into a non-issue.
 - **MCP server stays minimal** — every tool is a one-line wrapper; the server stays alive
-  until the client disconnects (stdin close), then exits.
+  until the client disconnects (stdin close), then exits. Each tool carries MCP
+  `annotations`. `readOnlyHint` is `true` for the reads (`list_projects`, `project_info`,
+  `list_documents`, `read_document`, `search`, `connected_users`, `compile`) and `false` for
+  the writes. `compile` is read-only (it never mutates project content) but also
+  `idempotentHint: false`, since each call kicks off a fresh build. The writes set
+  `destructiveHint` explicitly (it would otherwise default to `true` whenever `readOnlyHint`
+  is `false`): `true` for overwrite/remove tools (`replace_text`, `replace_range`,
+  `delete_range`, `delete_lines`, `set_document`, `delete_document`), `false` for the purely
+  additive ones (`insert_text`, `append_text`, `create_document`, and `rename_document` —
+  which changes a name, losing no content).
 
 ## Configuration (optional environment variables)
 

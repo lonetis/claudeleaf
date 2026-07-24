@@ -118,6 +118,22 @@ components over the `\n`-joined text: insert `{p,i}`, delete `{p,d}`. The server
 - **to other clients:** an op-ful `otUpdateApplied {doc,op,v,meta}` to apply.
 After an update the version is `v+1`.
 
+**Track changes (review mode).** Adding `meta:{tc:<seed>}` to the `applyOtUpdate` payload
+makes the server record the op's components as *tracked changes* (review-mode suggestions)
+instead of plain edits — the same mechanism as toggling "Track changes" in the editor, and a
+**premium feature** (verified live on a premium account; ops from a non-premium account are
+applied as normal edits). The `tc` seed is any id string (we send 18 random hex); the server
+appends a 6-digit per-component counter to form each change id (`<seed>000001`, `000002`, …)
+and fills in `metadata:{user_id,ts}` from the session — the client sends only the seed. A
+tracked **insert** adds the text to the snapshot *and* records an insertion change; a tracked
+**delete** removes the text from the snapshot but preserves it in ranges as a deletion change
+(struck through until accepted/rejected). Either way the snapshot matches what our
+`ot.applyOp` mirror computes, so the confirmation/version/mirror logic is unchanged — the
+option only threads `meta` into the one emit. `joinDoc` with `{encodeRanges:true}` returns
+the ranges (`{changes,comments}`) among its result args; use them to read tracked changes
+back. Exposed as the `EditOptions.trackChanges` flag on every SDK edit method and a
+`trackChanges` param on the MCP write tools.
+
 **Hash.** Overleaf's optional ShareJS hash is git-blob SHA-1 (`ot.gitBlobHash`). We **omit
 it**: the server treats it as optional, and a mismatch is fatal (`otUpdateError "Invalid
 hash"` + disconnect), so omitting it is strictly more reliable.
@@ -223,7 +239,9 @@ the first argument and are `async`: `projectInfo`, `listDocuments`, `readDocumen
 `documentVersion`, `search`, `insertAt`, `insert`, `append`, `deleteRange`, `replaceRange`,
 `replaceText`, `setText`, `deleteLines`, `setCursor`, `getConnectedUsers`, `createDocument`,
 `createFolder`, `deleteDocument`, `renameDocument`, `resync`, `compile`. `ProjectSession`
-exposes the same methods without the leading `project` argument. Paths resolve by full path,
+exposes the same methods without the leading `project` argument. Every edit method takes an
+optional trailing `EditOptions` (`{trackChanges?}`) — set `trackChanges` to submit the edit as
+a review-mode tracked change (see the track-changes note above). Paths resolve by full path,
 then id, then unique basename; `line`/`column` are 0-based and offsets are character indices
 into the `\n`-joined text — **except** compile-log line numbers (`CompileResult.errors`/
 `warnings[].line`), which are 1-based (LaTeX/editor convention). The MCP tools (`overleaf_*`,

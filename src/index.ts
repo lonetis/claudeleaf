@@ -10,7 +10,7 @@
  */
 
 export { OverleafClient } from "./client.js";
-export { ProjectSession } from "./session.js";
+export { ProjectSession, type EditOptions } from "./session.js";
 export { Config, parseProjectId } from "./config.js";
 export { Document } from "./document.js";
 export { parseLatexLog, splitByLevel } from "./logParser.js";

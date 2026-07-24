@@ -46,7 +46,7 @@ src/
   rest.ts         listProjects() + RestClient(projectId) for tree CRUD + compile/output
   session.ts      ProjectSession: one project's realtime connection, tree, edits, compile
   client.ts       OverleafClient: account-scoped; listProjects + per-project delegation
-  cli.ts          CLI (login, doctor, projects, doc ops, compile, mcp); the bin
+  cli.ts          CLI (login, doctor, projects, doc ops, comments, compile, mcp); the bin
   mcpServer.ts    MCP server exposing the SDK as tools (each takes a project)
 test/             vitest unit (no network) + integration/mcp e2e (live, auto-skip)
 ```
@@ -259,7 +259,10 @@ exposes the same methods without the leading `project` argument. Every edit meth
 optional trailing `EditOptions` (`{trackChanges?}`) — set `trackChanges` to submit the edit as
 a review-mode tracked change (see the track-changes note above). Comments add `addComment`
 (anchor a comment to a `[start,end)` span) and `listComments` (a doc's comments merged with
-their thread messages). Paths resolve by full path,
+their thread messages). Both features reach all three layers: the CLI exposes
+`--track-changes` on the editing commands (`append`, `insert`, `replace`, `set`) plus the
+`comment` / `comments` commands, and the MCP exposes `trackChanges` on the seven text-writing
+tools plus `overleaf_add_comment` / `overleaf_list_comments`. Paths resolve by full path,
 then id, then unique basename; `line`/`column` are 0-based and offsets are character indices
 into the `\n`-joined text — **except** compile-log line numbers (`CompileResult.errors`/
 `warnings[].line`), which are 1-based (LaTeX/editor convention). The MCP tools (`overleaf_*`,

@@ -28,6 +28,16 @@ function result(value: unknown) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+/** Shared schema fragment: submit the edit as a review-mode tracked change (suggestion). */
+const trackChanges = z
+  .boolean()
+  .optional()
+  .describe(
+    "Submit as a tracked change (review-mode suggestion) instead of a direct edit, for a " +
+      "human to accept or reject. Inserts become tracked insertions; deletions keep the removed " +
+      "text struck through. Requires track changes to be available on the project (premium).",
+  );
+
 export function createServer(): McpServer {
   const server = new McpServer({ name: "claudeleaf", version: "0.1.0" });
 
@@ -86,11 +96,11 @@ export function createServer(): McpServer {
     "overleaf_insert_text",
     {
       description: "Insert text at a 0-based line and column. Collaborators see the edit live.",
-      inputSchema: { project: z.string(), path: z.string(), line: z.number().int(), column: z.number().int(), text: z.string() },
+      inputSchema: { project: z.string(), path: z.string(), line: z.number().int(), column: z.number().int(), text: z.string(), trackChanges },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ project, path, line, column, text }) => {
-      const doc = await getClient().insert(project, path, line, column, text);
+    async ({ project, path, line, column, text, trackChanges }) => {
+      const doc = await getClient().insert(project, path, line, column, text, { trackChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );
@@ -99,11 +109,11 @@ export function createServer(): McpServer {
     "overleaf_append_text",
     {
       description: "Append text to the end of a document (a newline is added if needed).",
-      inputSchema: { project: z.string(), path: z.string(), text: z.string() },
+      inputSchema: { project: z.string(), path: z.string(), text: z.string(), trackChanges },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ project, path, text }) => {
-      const doc = await getClient().append(project, path, text);
+    async ({ project, path, text, trackChanges }) => {
+      const doc = await getClient().append(project, path, text, { trackChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );
@@ -112,11 +122,11 @@ export function createServer(): McpServer {
     "overleaf_replace_text",
     {
       description: "Replace literal occurrences of `old` with `new`. count=0 replaces all.",
-      inputSchema: { project: z.string(), path: z.string(), old: z.string(), new: z.string(), count: z.number().int().optional() },
+      inputSchema: { project: z.string(), path: z.string(), old: z.string(), new: z.string(), count: z.number().int().optional(), trackChanges },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ project, path, old, new: newStr, count }) => {
-      const n = await getClient().replaceText(project, path, old, newStr, count ?? 0);
+    async ({ project, path, old, new: newStr, count, trackChanges }) => {
+      const n = await getClient().replaceText(project, path, old, newStr, count ?? 0, { trackChanges });
       return result({ ok: true, path, replaced: n });
     },
   );
@@ -125,11 +135,11 @@ export function createServer(): McpServer {
     "overleaf_replace_range",
     {
       description: "Replace the text between character offsets [start, end) with `text`.",
-      inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int(), text: z.string() },
+      inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int(), text: z.string(), trackChanges },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ project, path, start, end, text }) => {
-      const doc = await getClient().replaceRange(project, path, start, end, text);
+    async ({ project, path, start, end, text, trackChanges }) => {
+      const doc = await getClient().replaceRange(project, path, start, end, text, { trackChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );
@@ -138,11 +148,11 @@ export function createServer(): McpServer {
     "overleaf_delete_range",
     {
       description: "Delete the text between character offsets [start, end).",
-      inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int() },
+      inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int(), trackChanges },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ project, path, start, end }) => {
-      const doc = await getClient().deleteRange(project, path, start, end);
+    async ({ project, path, start, end, trackChanges }) => {
+      const doc = await getClient().deleteRange(project, path, start, end, { trackChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );
@@ -151,11 +161,11 @@ export function createServer(): McpServer {
     "overleaf_delete_lines",
     {
       description: "Delete 0-based lines startLine..endLine (inclusive).",
-      inputSchema: { project: z.string(), path: z.string(), startLine: z.number().int(), endLine: z.number().int() },
+      inputSchema: { project: z.string(), path: z.string(), startLine: z.number().int(), endLine: z.number().int(), trackChanges },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ project, path, startLine, endLine }) => {
-      const doc = await getClient().deleteLines(project, path, startLine, endLine);
+    async ({ project, path, startLine, endLine, trackChanges }) => {
+      const doc = await getClient().deleteLines(project, path, startLine, endLine, { trackChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );
@@ -164,11 +174,11 @@ export function createServer(): McpServer {
     "overleaf_set_document",
     {
       description: "Replace a document's entire contents with `content` (sent as a minimal diff).",
-      inputSchema: { project: z.string(), path: z.string(), content: z.string() },
+      inputSchema: { project: z.string(), path: z.string(), content: z.string(), trackChanges },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ project, path, content }) => {
-      const doc = await getClient().setText(project, path, content);
+    async ({ project, path, content, trackChanges }) => {
+      const doc = await getClient().setText(project, path, content, { trackChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );

@@ -149,6 +149,53 @@ describe("encoding / positions", () => {
   });
 });
 
+describe("track changes (review mode)", () => {
+  /** Capture the update object sent on the next applyOtUpdate. */
+  function captureUpdate(fake: FakeRealtime): () => Record<string, unknown> | undefined {
+    let captured: Record<string, unknown> | undefined;
+    const orig = fake.emit.bind(fake);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fake.emit = async (name: string, args?: any[]) => {
+      if (name === "applyOtUpdate") captured = (args as [string, Record<string, unknown>])[1];
+      return orig(name, args);
+    };
+    return () => captured;
+  }
+
+  it("attaches meta.tc with an 18-hex seed when trackChanges is set", async () => {
+    const { session, fake } = makeSession("hello world");
+    const get = captureUpdate(fake);
+    await session.insertAt("main.tex", 5, " big", { trackChanges: true });
+    const meta = get()?.meta as { tc?: string } | undefined;
+    expect(meta?.tc).toMatch(/^[0-9a-f]{18}$/);
+    expect(fake.text).toBe("hello big world"); // snapshot still applies as normal
+  });
+
+  it("omits meta by default (direct edit)", async () => {
+    const { session, fake } = makeSession("hello world");
+    const get = captureUpdate(fake);
+    await session.insertAt("main.tex", 5, " big");
+    expect(get()?.meta).toBeUndefined();
+  });
+
+  it("uses a fresh seed per submitted edit", async () => {
+    const { session, fake } = makeSession("a a a");
+    const seeds = new Set<string>();
+    const orig = fake.emit.bind(fake);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fake.emit = async (name: string, args?: any[]) => {
+      if (name === "applyOtUpdate") {
+        const m = (args as [string, { meta?: { tc?: string } }])[1].meta;
+        if (m?.tc) seeds.add(m.tc);
+      }
+      return orig(name, args);
+    };
+    await session.append("main.tex", "x", { trackChanges: true });
+    await session.append("main.tex", "y", { trackChanges: true });
+    expect(seeds.size).toBe(2);
+  });
+});
+
 describe("reliability paths", () => {
   it("not-transmitted retries then succeeds once", async () => {
     const { session, fake } = makeSession("base");

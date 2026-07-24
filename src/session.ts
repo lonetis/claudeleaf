@@ -16,6 +16,8 @@
  *   in-flight edit).
  */
 
+import { randomBytes } from "node:crypto";
+
 import { SessionManager } from "./auth.js";
 import type { Config } from "./config.js";
 import { Document } from "./document.js";
@@ -52,6 +54,18 @@ const TREE_EVENTS = new Set([
 
 type OpBuilder = (doc: Document) => { op: ot.Op; cursor: number | null };
 type ConfirmResult = { status: "confirmed"; version?: number } | { status: "dropped" | "timeout" };
+
+/**
+ * Options common to every edit. `trackChanges` submits the edit as an Overleaf tracked
+ * change (a review-mode suggestion) rather than a direct edit: inserts become tracked
+ * insertions and deletes become tracked deletions (the removed text is kept, struck through,
+ * until a human accepts or rejects it). Requires track changes to be available on the
+ * project (a premium feature); the server records the change and attributes it to the
+ * signed-in user.
+ */
+export interface EditOptions {
+  trackChanges?: boolean;
+}
 
 interface PendingEdit {
   deferred: Deferred<number | undefined>;
@@ -155,15 +169,15 @@ export class ProjectSession {
   }
 
   // -- editing ----------------------------------------------------------
-  async insertAt(path: string, offset: number, text: string): Promise<Document> {
+  async insertAt(path: string, offset: number, text: string, opts: EditOptions = {}): Promise<Document> {
     const doc = await this.openDoc(path);
     return this.submit(doc, (d) => {
       const pos = clamp(offset, d.length);
       return { op: [ot.insert(pos, text)], cursor: pos + text.length };
-    });
+    }, opts);
   }
 
-  async insert(path: string, line: number, column: number, text: string): Promise<Document> {
+  async insert(path: string, line: number, column: number, text: string, opts: EditOptions = {}): Promise<Document> {
     if (line < 0 || column < 0) {
       throw new EditError(`line and column must be non-negative (got ${line}:${column})`);
     }
@@ -171,28 +185,28 @@ export class ProjectSession {
     return this.submit(doc, (d) => {
       const pos = d.rowcolToOffset(line, column);
       return { op: [ot.insert(pos, text)], cursor: pos + text.length };
-    });
+    }, opts);
   }
 
-  async append(path: string, text: string): Promise<Document> {
+  async append(path: string, text: string, opts: EditOptions = {}): Promise<Document> {
     const doc = await this.openDoc(path);
     return this.submit(doc, (d) => {
       let addition = text;
       if (d.text && !d.text.endsWith("\n") && !addition.startsWith("\n")) addition = "\n" + addition;
       return { op: [ot.insert(d.length, addition)], cursor: d.length + addition.length };
-    });
+    }, opts);
   }
 
-  async deleteRange(path: string, start: number, end: number): Promise<Document> {
+  async deleteRange(path: string, start: number, end: number, opts: EditOptions = {}): Promise<Document> {
     const doc = await this.openDoc(path);
     return this.submit(doc, (d) => {
       const [s, e] = validateRange(d, start, end);
       if (s === e) return { op: [], cursor: s };
       return { op: [ot.del(s, d.text.slice(s, e))], cursor: s };
-    });
+    }, opts);
   }
 
-  async replaceRange(path: string, start: number, end: number, text: string): Promise<Document> {
+  async replaceRange(path: string, start: number, end: number, text: string, opts: EditOptions = {}): Promise<Document> {
     const doc = await this.openDoc(path);
     return this.submit(doc, (d) => {
       const [s, e] = validateRange(d, start, end);
@@ -200,10 +214,10 @@ export class ProjectSession {
       if (e > s) op.push(ot.del(s, d.text.slice(s, e)));
       if (text) op.push(ot.insert(s, text));
       return { op, cursor: s + text.length };
-    });
+    }, opts);
   }
 
-  async replaceText(path: string, oldStr: string, newStr: string, count = 0): Promise<number> {
+  async replaceText(path: string, oldStr: string, newStr: string, count = 0, opts: EditOptions = {}): Promise<number> {
     if (!oldStr) throw new EditError("'old' must be a non-empty string");
     const doc = await this.openDoc(path);
     let replaced = 0;
@@ -225,16 +239,16 @@ export class ProjectSession {
         if (newStr) op.push(ot.insert(idx, newStr));
       }
       return { op, cursor: positions[positions.length - 1] + newStr.length };
-    });
+    }, opts);
     return replaced;
   }
 
-  async setText(path: string, newText: string): Promise<Document> {
+  async setText(path: string, newText: string, opts: EditOptions = {}): Promise<Document> {
     const doc = await this.openDoc(path);
-    return this.submit(doc, (d) => ({ op: ot.diffToOp(d.text, newText), cursor: newText.length }));
+    return this.submit(doc, (d) => ({ op: ot.diffToOp(d.text, newText), cursor: newText.length }), opts);
   }
 
-  async deleteLines(path: string, startLine: number, endLine: number): Promise<Document> {
+  async deleteLines(path: string, startLine: number, endLine: number, opts: EditOptions = {}): Promise<Document> {
     const doc = await this.openDoc(path);
     return this.submit(doc, (d) => {
       const lines = d.lines;
@@ -252,7 +266,7 @@ export class ProjectSession {
       }
       if (start === end) return { op: [], cursor: start };
       return { op: [ot.del(start, d.text.slice(start, end))], cursor: start };
-    });
+    }, opts);
   }
 
   async resync(path: string): Promise<Document> {
@@ -500,7 +514,7 @@ export class ProjectSession {
     throw lastError ?? new ClaudeleafError(`joinDoc failed for ${doc.path}`);
   }
 
-  private submit(doc: Document, build: OpBuilder): Promise<Document> {
+  private submit(doc: Document, build: OpBuilder, opts: EditOptions = {}): Promise<Document> {
     return this.mutex(doc.id).runExclusive(async () => {
       let lastError: Error | undefined;
       for (let attempt = 0; attempt < 4; attempt++) {
@@ -518,12 +532,19 @@ export class ProjectSession {
         }
 
         const version = doc.version;
+        // In track-changes mode, tag the update with a fresh id seed. The server records the
+        // op's components as tracked changes (id = seed + a per-component counter) attributed
+        // to the signed-in user, instead of applying it as a plain edit. The op wire format
+        // and the resulting snapshot are unchanged, so the local mirror and confirmation
+        // logic below stay correct.
+        const update: Record<string, unknown> = { doc: doc.id, op, v: version };
+        if (opts.trackChanges) update.meta = { tc: randomBytes(9).toString("hex") };
         const pending: PendingEdit = { deferred: new Deferred(), baseVersion: version };
         this.pending.set(doc.id, pending);
         try {
           await this.rt.emit(
             "applyOtUpdate",
-            [doc.id, { doc: doc.id, op, v: version }],
+            [doc.id, update],
             { timeout: this.config.requestTimeout, retryOnDrop: false },
           );
         } catch (e) {

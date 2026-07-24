@@ -17,7 +17,7 @@ import { Config, parseProjectId } from "./config.js";
 import type { Document } from "./document.js";
 import { ProjectNotFoundError } from "./errors.js";
 import { listProjects as restListProjects } from "./rest.js";
-import { ProjectSession } from "./session.js";
+import { ProjectSession, type EditOptions } from "./session.js";
 import type {
   CompileOptions,
   CompileResult,
@@ -168,36 +168,36 @@ export class OverleafClient {
   }
 
   // -- editing ----------------------------------------------------------
-  async insertAt(project: string, path: string, offset: number, text: string): Promise<Document> {
-    return (await this.project(project)).insertAt(path, offset, text);
+  async insertAt(project: string, path: string, offset: number, text: string, opts?: EditOptions): Promise<Document> {
+    return (await this.project(project)).insertAt(path, offset, text, opts);
   }
 
-  async insert(project: string, path: string, line: number, column: number, text: string): Promise<Document> {
-    return (await this.project(project)).insert(path, line, column, text);
+  async insert(project: string, path: string, line: number, column: number, text: string, opts?: EditOptions): Promise<Document> {
+    return (await this.project(project)).insert(path, line, column, text, opts);
   }
 
-  async append(project: string, path: string, text: string): Promise<Document> {
-    return (await this.project(project)).append(path, text);
+  async append(project: string, path: string, text: string, opts?: EditOptions): Promise<Document> {
+    return (await this.project(project)).append(path, text, opts);
   }
 
-  async deleteRange(project: string, path: string, start: number, end: number): Promise<Document> {
-    return (await this.project(project)).deleteRange(path, start, end);
+  async deleteRange(project: string, path: string, start: number, end: number, opts?: EditOptions): Promise<Document> {
+    return (await this.project(project)).deleteRange(path, start, end, opts);
   }
 
-  async replaceRange(project: string, path: string, start: number, end: number, text: string): Promise<Document> {
-    return (await this.project(project)).replaceRange(path, start, end, text);
+  async replaceRange(project: string, path: string, start: number, end: number, text: string, opts?: EditOptions): Promise<Document> {
+    return (await this.project(project)).replaceRange(path, start, end, text, opts);
   }
 
-  async replaceText(project: string, path: string, oldStr: string, newStr: string, count = 0): Promise<number> {
-    return (await this.project(project)).replaceText(path, oldStr, newStr, count);
+  async replaceText(project: string, path: string, oldStr: string, newStr: string, count = 0, opts?: EditOptions): Promise<number> {
+    return (await this.project(project)).replaceText(path, oldStr, newStr, count, opts);
   }
 
-  async setText(project: string, path: string, newText: string): Promise<Document> {
-    return (await this.project(project)).setText(path, newText);
+  async setText(project: string, path: string, newText: string, opts?: EditOptions): Promise<Document> {
+    return (await this.project(project)).setText(path, newText, opts);
   }
 
-  async deleteLines(project: string, path: string, startLine: number, endLine: number): Promise<Document> {
-    return (await this.project(project)).deleteLines(path, startLine, endLine);
+  async deleteLines(project: string, path: string, startLine: number, endLine: number, opts?: EditOptions): Promise<Document> {
+    return (await this.project(project)).deleteLines(path, startLine, endLine, opts);
   }
 
   async resync(project: string, path: string): Promise<Document> {

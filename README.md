@@ -52,6 +52,18 @@ npx claudeleaf compile "My Paper"                     # recompile; print errors/
 npx claudeleaf compile "My Paper" --warnings --log    # also show warnings + the raw log
 ```
 
+Suggest an edit instead of making it, and comment on a span of text:
+
+```bash
+# review mode: a tracked change for a human to accept or reject
+npx claudeleaf replace "My Paper" main.tex "foo" "bar" --track-changes
+
+# comment on the [start, end) character span (use `search` to find offsets)
+npx claudeleaf search "My Paper" main.tex "Introduction"   # -> offset 772
+npx claudeleaf comment "My Paper" main.tex 772 784 "Should this be shorter?"
+npx claudeleaf comments "My Paper" main.tex                # list comments + threads
+```
+
 ### Use it with Claude Code (MCP)
 
 Register the MCP server (no clone needed), then ask Claude to work on any of your projects:
@@ -62,6 +74,14 @@ claude mcp add claudeleaf -- npx -y claudeleaf mcp
 
 The tools reuse the session from `claudeleaf login` (they won't pop a browser). Claude can
 `overleaf_list_projects`, then read, edit, and compile documents in any project by id or name.
+
+It can also work in **review mode** rather than editing directly — the seven tools that write
+document text (`insert_text`, `append_text`, `replace_text`, `replace_range`, `delete_range`,
+`delete_lines`, `set_document`) take `trackChanges: true` to leave a tracked suggestion — and
+comment on the text with `overleaf_add_comment` / `overleaf_list_comments`. For example:
+
+> "Read main.tex, then suggest a tighter abstract as tracked changes and leave a comment on
+> the title explaining why."
 
 ### Use the SDK
 
@@ -79,6 +99,15 @@ for (const p of await client.listProjects()) {
 await client.append("My Paper", "main.tex", "\n% added by an agent\n");
 await client.replaceText("My Paper", "main.tex", "Your Paper", "Our Paper");
 
+// review mode: submit as a tracked change for a human to accept or reject
+await client.replaceText("My Paper", "main.tex", "utilise", "use", 0, { trackChanges: true });
+
+// comment on a span of text, then read the document's comments back
+await client.addComment("My Paper", "main.tex", 772, 784, "Should this be shorter?");
+for (const c of await client.listComments("My Paper", "main.tex")) {
+  console.log(c.line, c.text, c.messages.map((m) => m.content));
+}
+
 const compile = await client.compile("My Paper");
 console.log(compile.status, compile.errors); // errors carry { message, file, line }
 ```
@@ -95,5 +124,10 @@ npm run build                 # compile to dist/
 
 ## Notes
 
-- Claudeleaf edits the live document. Use Overleaf's history to review or revert changes.
+- Claudeleaf edits the live document. Use Overleaf's history to review or revert changes — or
+  make the edit a suggestion in the first place with `--track-changes` / `trackChanges`.
+- Track changes is an Overleaf **premium** feature. On a project without it the edit still
+  applies, just as a normal edit rather than a suggestion. Comments work on any project.
+- Comment threads can be created and listed, but not resolved or deleted — Overleaf does not
+  expose those routes.
 - The cached session is a credential; it lives under `~/.claudeleaf` with restrictive permissions.

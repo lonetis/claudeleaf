@@ -8,6 +8,7 @@ Bring Claude (and any agent) into Overleaf. Claudeleaf is a reliable TypeScript 
 - **All your projects, one instance.** List every project you can access and edit any of them by id or name — no project configured up front.
 - **Full document control** — list documents, read text, insert at a position or line/column, replace ranges or literal text, delete ranges or lines, replace a whole document, and create/delete/rename files.
 - **Review mode (track changes).** Submit any edit as a tracked change (a suggestion) with `trackChanges` instead of a direct edit, so a human accepts or rejects it in Overleaf. Requires track changes on the project (a premium feature).
+- **Comments.** Anchor a comment to a span of text (like selecting text and commenting in the editor) and list a document's comments with their threads.
 - **Compile & error logs** — trigger a LaTeX recompile and get back the status plus the parsed errors and warnings (with file and line), or the full raw log.
 - **Reliable by design** — automatic reconnect with document re-join, per-document edit serialization, and server-confirmed edits (no silent loss).
 - **Zero config, easy sign-in.** No credentials stored and nothing to configure: run `claudeleaf login` once, sign in by hand in the browser that opens (handles reCAPTCHA / SSO / 2FA), and the session is cached.

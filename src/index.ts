@@ -33,6 +33,8 @@ export type {
   ProjectSummary,
   ProjectInfo,
   ConnectedUser,
+  Comment,
+  CommentMessage,
   OutputFile,
   LogLevel,
   LogEntry,

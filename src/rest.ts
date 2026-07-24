@@ -92,7 +92,7 @@ export class RestClient {
   }
 
   private async request(
-    method: "POST" | "DELETE",
+    method: "GET" | "POST" | "DELETE",
     path: string,
     payload?: object,
     timeoutMs = this.config.requestTimeout * 1000,
@@ -168,6 +168,16 @@ export class RestClient {
     await this.request("POST", `/project/${this.projectId}/${type}/${entityId}/rename`, { name });
   }
 
+  /** Post a message to a comment thread (creating the thread on its first message). */
+  async postThreadMessage(threadId: string, content: string): Promise<void> {
+    await this.request("POST", `/project/${this.projectId}/thread/${threadId}/messages`, { content });
+  }
+
+  /** Fetch every comment thread in the project, keyed by thread id. */
+  async getThreads(): Promise<Record<string, RawThread>> {
+    return (await this.request("GET", `/project/${this.projectId}/threads`)) as Record<string, RawThread>;
+  }
+
   /** Trigger a LaTeX compile and return Overleaf's raw response (status + output files). */
   async compile(opts: { draft?: boolean; stopOnFirstError?: boolean }): Promise<RawCompileResponse> {
     return (await this.request(
@@ -213,4 +223,19 @@ export interface RawCompileResponse {
   clsiServerId?: string;
   compileGroup?: string;
   outputUrlPrefix?: string;
+}
+
+export interface RawThreadMessage {
+  id?: string;
+  content: string;
+  timestamp?: number;
+  user_id?: string;
+  user?: { id?: string; first_name?: string; last_name?: string; email?: string };
+}
+
+export interface RawThread {
+  messages?: RawThreadMessage[];
+  resolved?: boolean;
+  resolved_at?: string;
+  resolved_by_user?: { id?: string; first_name?: string; email?: string };
 }

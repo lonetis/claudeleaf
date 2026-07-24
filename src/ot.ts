@@ -16,7 +16,14 @@ import { createHash } from "node:crypto";
 
 export type InsertComponent = { p: number; i: string };
 export type DeleteComponent = { p: number; d: string };
-export type Component = InsertComponent | DeleteComponent;
+/**
+ * A comment marker: attaches a comment thread `t` to the `c.length` characters at `p`. It is
+ * a ShareJS op like any other (so it rides `applyOtUpdate` and bumps the version), but it does
+ * **not** change the document text - `applyOp` skips it. The thread's messages live in the
+ * separate chat/threads REST service, keyed by `t`.
+ */
+export type CommentComponent = { p: number; c: string; t: string };
+export type Component = InsertComponent | DeleteComponent | CommentComponent;
 export type Op = Component[];
 
 export function insert(pos: number, text: string): InsertComponent {
@@ -27,8 +34,16 @@ export function del(pos: number, text: string): DeleteComponent {
   return { p: pos, d: text };
 }
 
+export function comment(pos: number, text: string, threadId: string): CommentComponent {
+  return { p: pos, c: text, t: threadId };
+}
+
 function isInsert(c: Component): c is InsertComponent {
   return (c as InsertComponent).i !== undefined;
+}
+
+function isComment(c: Component): c is CommentComponent {
+  return (c as CommentComponent).c !== undefined;
 }
 
 /** Apply an op to `text`. Throws if a delete does not match (local mirror diverged). */
@@ -37,6 +52,9 @@ export function applyOp(text: string, op: Op): string {
     const pos = comp.p;
     if (pos < 0 || pos > text.length) {
       throw new Error(`op position ${pos} out of range for length ${text.length}`);
+    }
+    if (isComment(comp)) {
+      continue; // a comment marker carries no text change
     }
     if (isInsert(comp)) {
       text = text.slice(0, pos) + comp.i + text.slice(pos);
@@ -109,9 +127,10 @@ export function decodeWireText(wire: string): string {
 
 /** Decode the text of an incoming server op. Positions are already codepoint offsets. */
 export function decodeWireOp(op: Op): Op {
-  return op.map((c) =>
-    isInsert(c) ? insert(c.p, decodeWireText(c.i)) : del(c.p, decodeWireText(c.d)),
-  );
+  return op.map((c) => {
+    if (isComment(c)) return comment(c.p, decodeWireText(c.c), c.t);
+    return isInsert(c) ? insert(c.p, decodeWireText(c.i)) : del(c.p, decodeWireText(c.d));
+  });
 }
 
 /**

@@ -18,6 +18,20 @@ describe("ot apply", () => {
   it("throws on out-of-range", () => {
     expect(() => ot.applyOp("hi", [ot.insert(99, "x")])).toThrow();
   });
+  it("comment op leaves text unchanged", () => {
+    expect(ot.applyOp("hello world", [ot.comment(0, "hello", "thread1")])).toBe("hello world");
+    // mixed with a real edit: only the insert changes text
+    expect(ot.applyOp("hello world", [ot.comment(0, "hello", "t"), ot.insert(11, "!")])).toBe("hello world!");
+  });
+});
+
+describe("comment components", () => {
+  it("comment() builds {p,c,t}", () => {
+    expect(ot.comment(3, "abc", "thread")).toEqual({ p: 3, c: "abc", t: "thread" });
+  });
+  it("decodeWireOp decodes the commented text, keeps thread + position", () => {
+    expect(ot.decodeWireOp([ot.comment(2, "cafÃ©", "t1")])).toEqual([{ p: 2, c: "café", t: "t1" }]);
+  });
 });
 
 describe("diffToOp", () => {

@@ -19,6 +19,8 @@ class FakeRealtime {
   failNext = 0; // throw NotTransmittedError on the next N applyOtUpdate sends
   confirm = true; // whether to deliver the op-less confirmation
   applies = 0;
+  ranges: unknown = undefined; // ranges object returned alongside a joinDoc ack
+  joinError: unknown = null; // non-null puts an error in the ack's error slot
   private handlers: ((name: string, args: unknown[]) => void)[] = [];
 
   constructor(text: string, version = 0) {
@@ -35,9 +37,13 @@ class FakeRealtime {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async emit(name: string, args?: any[]): Promise<unknown[]> {
     if (name === "joinDoc") {
+      if (this.joinError !== null) return [this.joinError];
       // The server returns lines as a byte-view (UTF-8 bytes as Latin-1 units).
       const byteView = Buffer.from(this.text, "utf8").toString("latin1");
-      return [null, byteView.split("\n"), this.version];
+      // Ranges ride along after the version, in a slot that has moved between server versions.
+      return this.ranges === undefined
+        ? [null, byteView.split("\n"), this.version]
+        : [null, byteView.split("\n"), this.version, [], this.ranges, "sharejs-text-ot"];
     }
     if (name === "applyOtUpdate") {
       const [docId, update] = args as [string, { op: ot.Op; v: number }];
@@ -193,6 +199,115 @@ describe("track changes (review mode)", () => {
     await session.append("main.tex", "x", { trackChanges: true });
     await session.append("main.tex", "y", { trackChanges: true });
     expect(seeds.size).toBe(2);
+  });
+});
+
+describe("comments", () => {
+  it("addComment sends a text-neutral comment op and posts the thread message", async () => {
+    const { session, fake } = makeSession("The quick brown fox");
+    const posted: { threadId: string; content: string }[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (session as any).rest = { postThreadMessage: async (threadId: string, content: string) => void posted.push({ threadId, content }) };
+
+    let capturedOp: ot.Op | undefined;
+    const orig = fake.emit.bind(fake);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fake.emit = async (name: string, args?: any[]) => {
+      if (name === "applyOtUpdate") capturedOp = (args as [string, { op: ot.Op }])[1].op;
+      return orig(name, args);
+    };
+
+    const c = await session.addComment("main.tex", 10, 19, "which fox?");
+    expect(capturedOp).toEqual([{ p: 10, c: "brown fox", t: c.threadId }]);
+    expect(fake.text).toBe("The quick brown fox"); // text unchanged by the comment
+    expect(c.threadId).toMatch(/^[0-9a-f]{24}$/);
+    expect(posted).toEqual([{ threadId: c.threadId, content: "which fox?" }]);
+    expect(c.text).toBe("brown fox");
+    expect(c).toMatchObject({ offset: 10, line: 0, column: 10, resolved: false });
+  });
+
+  it("addComment rejects an empty range", async () => {
+    const { session } = makeSession("abc");
+    await expect(session.addComment("main.tex", 1, 1, "hi")).rejects.toBeInstanceOf(EditError);
+  });
+
+  it("addComment rejects an empty message", async () => {
+    const { session } = makeSession("abc");
+    await expect(session.addComment("main.tex", 0, 3, "")).rejects.toBeInstanceOf(EditError);
+  });
+
+  it("addComment posts the message before anchoring, so a failed post leaves no anchor", async () => {
+    const { session, fake } = makeSession("The quick brown fox");
+    const order: string[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (session as any).rest = {
+      postThreadMessage: async () => {
+        order.push("post");
+        throw new Error("session expired");
+      },
+    };
+    const orig = fake.emit.bind(fake);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fake.emit = async (name: string, args?: any[]) => {
+      if (name === "applyOtUpdate") order.push("anchor");
+      return orig(name, args);
+    };
+    await expect(session.addComment("main.tex", 10, 19, "which fox?")).rejects.toThrow("session expired");
+    // An orphan anchor would be permanent (no delete-thread route); an orphan thread is invisible.
+    expect(order).toEqual(["post"]);
+  });
+
+  it("addComment reports the offset it actually anchored at", async () => {
+    const { session } = makeSession("The quick brown fox");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (session as any).rest = { postThreadMessage: async () => {} };
+    const c = await session.addComment("main.tex", 4, 9, "x");
+    expect(c).toMatchObject({ offset: 4, line: 0, column: 4, text: "quick" });
+  });
+
+  it("listComments raises when the join fails instead of reporting no comments", async () => {
+    const { session, fake } = makeSession("hello");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (session as any).rest = { getThreads: async () => ({}) };
+    await session.readDocument("main.tex"); // join once while healthy
+    fake.joinError = { message: "joinLeaveEpoch mismatch" };
+    await expect(session.listComments("main.tex")).rejects.toThrow(/joinDoc failed/);
+  });
+
+  it("listComments surfaces a threads failure rather than reporting empty threads", async () => {
+    const { session, fake } = makeSession("hello world");
+    fake.ranges = { comments: [{ id: "t1", op: { p: 0, c: "hello", t: "t1" } }] };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (session as any).rest = { getThreads: async () => { throw new Error("401"); } };
+    await expect(session.listComments("main.tex")).rejects.toThrow("401");
+  });
+
+  it("listComments merges anchors with threads and skips uninterpretable ranges", async () => {
+    const { session, fake } = makeSession("hello world");
+    fake.ranges = {
+      comments: [
+        { id: "t1", op: { p: 6, c: "world", t: "t1" } },
+        { id: "broken" }, // no op -> cannot be placed, must not surface as offset 0
+      ],
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (session as any).rest = {
+      getThreads: async () => ({
+        t1: { messages: [{ content: "why?", user: { first_name: "ada", email: "a@b.c" } }], resolved: true },
+      }),
+    };
+    const list = await session.listComments("main.tex");
+    expect(list).toEqual([
+      {
+        threadId: "t1",
+        text: "world",
+        offset: 6,
+        line: 0,
+        column: 6,
+        resolved: true,
+        messages: [{ content: "why?", author: "ada", email: "a@b.c", timestamp: undefined }],
+      },
+    ]);
   });
 });
 

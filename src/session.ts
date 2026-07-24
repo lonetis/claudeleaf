@@ -32,8 +32,9 @@ import {
 import { parseLatexLog } from "./logParser.js";
 import * as ot from "./ot.js";
 import { RealtimeConnection } from "./realtime.js";
-import { RestClient } from "./rest.js";
+import { RestClient, type RawThread } from "./rest.js";
 import type {
+  Comment,
   CompileOptions,
   CompileResult,
   ConnectedUser,
@@ -70,6 +71,18 @@ export interface EditOptions {
 interface PendingEdit {
   deferred: Deferred<number | undefined>;
   baseVersion: number;
+}
+
+/** A comment range as returned by `joinDoc {encodeRanges:true}`. */
+interface RawCommentRange {
+  id?: string;
+  op?: { p?: number; c?: string; t?: string };
+}
+
+/** The ranges a `joinDoc {encodeRanges:true}` ack carries alongside the document. */
+interface DocRanges {
+  comments?: RawCommentRange[];
+  changes?: unknown[];
 }
 
 export class ProjectSession {
@@ -273,6 +286,82 @@ export class ProjectSession {
     const doc = await this.openDoc(path);
     await this.mutex(doc.id).runExclusive(() => this.joinDoc(doc));
     return doc;
+  }
+
+  // -- comments ---------------------------------------------------------
+  /**
+   * Attach a comment to the `[start, end)` span of a document. Sends a ShareJS comment op
+   * (which marks the range without changing the text) and posts the first thread message via
+   * the chat REST service. Returns the created {@link Comment}.
+   */
+  async addComment(path: string, start: number, end: number, message: string): Promise<Comment> {
+    if (!message) throw new EditError("'message' must be a non-empty string");
+    const doc = await this.openDoc(path);
+    const [s, e] = validateRange(doc, start, end);
+    if (s === e) throw new EditError("cannot comment on an empty range");
+    const threadId = randomBytes(12).toString("hex");
+
+    // Post the message *before* anchoring. Neither half is rollback-able (Overleaf exposes no
+    // delete-thread route), so order by which orphan is harmless: a thread with no anchor is
+    // invisible in the project, whereas an anchor with no message shows as an empty comment
+    // stuck on the text forever.
+    await this.rest.postThreadMessage(threadId, message);
+
+    // A comment op is text-neutral, so it rides the normal submit path (version + confirmation)
+    // and leaves the mirror unchanged; the closure re-slices the freshly-synced text on retry.
+    let commented = "";
+    let anchor = s;
+    await this.submit(doc, (d) => {
+      const [cs, ce] = validateRange(d, start, end);
+      // Re-check on every attempt: a resync between attempts can shorten the document and
+      // collapse the range, and a zero-length op would still be length 1 (so submit would
+      // happily commit an anchor attached to nothing).
+      if (cs === ce) throw new EditError("cannot comment on an empty range");
+      commented = d.text.slice(cs, ce);
+      anchor = cs;
+      return { op: [ot.comment(cs, commented, threadId)], cursor: null };
+    });
+
+    // Report the offset actually sent (the closure may have re-run against resynced text).
+    const [line, column] = doc.offsetToRowcol(anchor);
+    return { threadId, text: commented, offset: anchor, line, column, resolved: false, messages: [{ content: message }] };
+  }
+
+  /** List the comments anchored in a document, each merged with its thread of messages. */
+  async listComments(path: string): Promise<Comment[]> {
+    const doc = await this.openDoc(path);
+    // Go through joinDoc so a failed join raises instead of silently reading as "no comments",
+    // and so the mirror the offsets are mapped against comes from this same join.
+    const ranges = await this.mutex(doc.id).runExclusive(() => this.joinDoc(doc));
+    const comments = ranges.comments ?? [];
+    if (comments.length === 0) return [];
+    // Deliberately not caught: a failed threads fetch would otherwise be indistinguishable
+    // from every thread being empty and unresolved.
+    const threads = await this.rest.getThreads();
+    return comments.flatMap((cm) => {
+      const threadId = cm.op?.t ?? cm.id;
+      const offset = cm.op?.p;
+      // A range we cannot interpret is skipped rather than reported at offset 0 with a blank
+      // thread id, which would be indistinguishable from a real comment on the first character.
+      if (!threadId || offset === undefined) return [];
+      const [line, column] = doc.offsetToRowcol(offset);
+      const thread = threads[threadId];
+      const messages = (thread?.messages ?? []).map((m) => ({
+        content: m.content ?? "", // REST JSON is real UTF-8, not the realtime byte-view
+        author: m.user?.first_name,
+        email: m.user?.email,
+        timestamp: m.timestamp,
+      }));
+      return [{
+        threadId,
+        text: ot.decodeWireText(cm.op?.c ?? ""),
+        offset,
+        line,
+        column,
+        resolved: Boolean(thread?.resolved),
+        messages,
+      }];
+    });
   }
 
   // -- presence & structure ---------------------------------------------
@@ -485,7 +574,13 @@ export class ProjectSession {
     if (!doc.loaded || doc.joinGeneration !== this.rt.generation) await this.joinDoc(doc);
   }
 
-  private async joinDoc(doc: Document, attempts = 5): Promise<void> {
+  /**
+   * (Re)join a document, refresh its mirror, and return the ranges the server sent with it.
+   * Every read of ranges goes through here so it inherits the error check and the backoff
+   * that rides out a `joinLeaveEpoch mismatch`, and so the ranges and the mirror they are
+   * interpreted against always come from the same join.
+   */
+  private async joinDoc(doc: Document, attempts = 5): Promise<DocRanges> {
     let lastError: Error | undefined;
     for (let i = 0; i < attempts; i++) {
       let result: unknown[];
@@ -509,7 +604,14 @@ export class ProjectSession {
       const lines = (result[1] as string[]).map(ot.decodeWireText);
       doc.loadFromLines(lines, result[2] as number);
       doc.joinGeneration = this.rt.generation;
-      return;
+      // Ranges ride along in the join ack; its exact slot has moved between server versions,
+      // so identify it by shape rather than index.
+      return (
+        result.find(
+          (x): x is DocRanges =>
+            !!x && typeof x === "object" && !Array.isArray(x) && ("comments" in x || "changes" in x),
+        ) ?? {}
+      );
     }
     throw lastError ?? new ClaudeleafError(`joinDoc failed for ${doc.path}`);
   }

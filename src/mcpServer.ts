@@ -233,6 +233,35 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
+    "overleaf_add_comment",
+    {
+      description:
+        "Attach a comment to a span of text (like selecting text in the editor and commenting). " +
+        "`start`/`end` are character offsets into the `\\n`-joined document — use overleaf_search " +
+        "to find them. The commented text is not changed; the comment appears in Overleaf's review " +
+        "panel, attributed to the signed-in user.",
+      inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int(), message: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ project, path, start, end, message }) => {
+      const c = await getClient().addComment(project, path, start, end, message);
+      return result({ ok: true, threadId: c.threadId, commented: c.text, line: c.line, column: c.column });
+    },
+  );
+
+  server.registerTool(
+    "overleaf_list_comments",
+    {
+      description:
+        "List the comments anchored in a document — each with its commented text span, position " +
+        "(offset/line/column), resolved state, and thread of messages.",
+      inputSchema: { project: z.string(), path: z.string() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ project, path }) => result(await getClient().listComments(project, path)),
+  );
+
+  server.registerTool(
     "overleaf_compile",
     {
       description:

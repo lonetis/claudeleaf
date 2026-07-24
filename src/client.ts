@@ -19,6 +19,7 @@ import { ProjectNotFoundError } from "./errors.js";
 import { listProjects as restListProjects } from "./rest.js";
 import { ProjectSession, type EditOptions } from "./session.js";
 import type {
+  Comment,
   CompileOptions,
   CompileResult,
   ConnectedUser,
@@ -202,6 +203,15 @@ export class OverleafClient {
 
   async resync(project: string, path: string): Promise<Document> {
     return (await this.project(project)).resync(path);
+  }
+
+  // -- comments ---------------------------------------------------------
+  async addComment(project: string, path: string, start: number, end: number, message: string): Promise<Comment> {
+    return (await this.project(project)).addComment(path, start, end, message);
+  }
+
+  async listComments(project: string, path: string): Promise<Comment[]> {
+    return (await this.project(project)).listComments(path);
   }
 
   // -- presence & structure ---------------------------------------------

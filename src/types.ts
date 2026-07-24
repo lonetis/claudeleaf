@@ -39,6 +39,34 @@ export interface ConnectedUser {
   [key: string]: unknown;
 }
 
+/** One message in a comment thread. */
+export interface CommentMessage {
+  content: string;
+  /** Display name of the author, if known. */
+  author?: string;
+  email?: string;
+  /** Epoch milliseconds when the message was posted. */
+  timestamp?: number;
+}
+
+/** A comment anchored to a span of a document, with its thread of messages. */
+export interface Comment {
+  /** The comment thread id (Overleaf's `t`). */
+  threadId: string;
+  /** The commented-on text span. */
+  text: string;
+  /** Character offset of the span's start in the `\n`-joined document. */
+  offset: number;
+  /** 0-based line of the span's start. */
+  line: number;
+  /** 0-based column of the span's start. */
+  column: number;
+  /** Whether the thread has been resolved in Overleaf. */
+  resolved: boolean;
+  /** The thread's messages, oldest first. */
+  messages: CommentMessage[];
+}
+
 /** A file produced by a compile (log, pdf, aux, ...). `url` is absolute and fetchable. */
 export interface OutputFile {
   path: string;

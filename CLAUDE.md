@@ -134,6 +134,22 @@ the ranges (`{changes,comments}`) among its result args; use them to read tracke
 back. Exposed as the `EditOptions.trackChanges` flag on every SDK edit method and a
 `trackChanges` param on the MCP write tools.
 
+**Comments.** A comment is the *other* half of ranges and takes two calls (verified live —
+works on a free account too, unlike track changes). (1) A ShareJS **comment op** component
+`{p,c,t}` (position, commented text, thread id) rides `applyOtUpdate` like any op and bumps
+the version, but carries **no text change** — `ot.applyOp` skips comment components, so the
+mirror is untouched and the op still flows through the normal `submit` path (version +
+confirmation). (2) The thread's message text is stored by the chat REST service, **not** the
+realtime channel: `POST /project/:id/thread/:threadId/messages {content}` (creates the thread
+on first message); `GET /project/:id/threads` returns every thread keyed by id
+(`{messages:[{content,user,timestamp}],resolved}`). The client generates the 24-hex thread id;
+the server fills author/ts. Read comments back by merging a doc's `ranges.comments` (anchors:
+`op.{p,c,t}`) with the threads API (messages). Note the ranges `c`/change text is the realtime
+**byte-view** (decode with `ot.decodeWireText`), but REST message `content` is already real
+UTF-8 (do not decode). The resolve/reopen/delete thread routes return 404 on overleaf.com, so
+Claudeleaf ships only create + list. Exposed as `addComment`/`listComments` (SDK) and
+`overleaf_add_comment`/`overleaf_list_comments` (MCP).
+
 **Hash.** Overleaf's optional ShareJS hash is git-blob SHA-1 (`ot.gitBlobHash`). We **omit
 it**: the server treats it as optional, and a mismatch is fatal (`otUpdateError "Invalid
 hash"` + disconnect), so omitting it is strictly more reliable.
@@ -208,14 +224,16 @@ state; instead:
 - **MCP server stays minimal** — every tool is a one-line wrapper; the server stays alive
   until the client disconnects (stdin close), then exits. Each tool carries MCP
   `annotations`. `readOnlyHint` is `true` for the reads (`list_projects`, `project_info`,
-  `list_documents`, `read_document`, `search`, `connected_users`, `compile`) and `false` for
-  the writes. `compile` is read-only (it never mutates project content) but also
-  `idempotentHint: false`, since each call kicks off a fresh build. The writes set
+  `list_documents`, `read_document`, `search`, `connected_users`, `list_comments`, `compile`)
+  and `false` for the writes. `compile` is read-only (it never mutates project content) but
+  also `idempotentHint: false`, since each call kicks off a fresh build. The writes set
   `destructiveHint` explicitly (it would otherwise default to `true` whenever `readOnlyHint`
   is `false`): `true` for overwrite/remove tools (`replace_text`, `replace_range`,
   `delete_range`, `delete_lines`, `set_document`, `delete_document`), `false` for the purely
-  additive ones (`insert_text`, `append_text`, `create_document`, and `rename_document` —
-  which changes a name, losing no content).
+  additive ones (`insert_text`, `append_text`, `create_document`, `add_comment` — which only
+  annotates, leaving the text unchanged — and `rename_document`, which changes a name, losing
+  no content). The seven write tools that change document text also take an optional
+  `trackChanges` to submit as a review-mode suggestion.
 
 ## Configuration (optional environment variables)
 
@@ -241,7 +259,9 @@ the first argument and are `async`: `projectInfo`, `listDocuments`, `readDocumen
 `createFolder`, `deleteDocument`, `renameDocument`, `resync`, `compile`. `ProjectSession`
 exposes the same methods without the leading `project` argument. Every edit method takes an
 optional trailing `EditOptions` (`{trackChanges?}`) — set `trackChanges` to submit the edit as
-a review-mode tracked change (see the track-changes note above). Paths resolve by full path,
+a review-mode tracked change (see the track-changes note above). Comments add `addComment`
+(anchor a comment to a `[start,end)` span) and `listComments` (a doc's comments merged with
+their thread messages). Paths resolve by full path,
 then id, then unique basename; `line`/`column` are 0-based and offsets are character indices
 into the `\n`-joined text — **except** compile-log line numbers (`CompileResult.errors`/
 `warnings[].line`), which are 1-based (LaTeX/editor convention). The MCP tools (`overleaf_*`,

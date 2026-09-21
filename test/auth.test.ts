@@ -30,4 +30,30 @@ describe("SessionManager.cookies", () => {
     // forceRefresh must re-read disk and return the session, NOT throw.
     expect(sm.cookies(true)).toEqual({ overleaf_session2: "abc" });
   });
+
+  it.each(["overleaf.sid", "sharelatex.sid"])(
+    "returns a cached self-hosted session using %s",
+    (cookieName) => {
+      const home = tmpHome();
+      fs.writeFileSync(
+        path.join(home, "session.json"),
+        JSON.stringify({
+          baseUrl: "https://overleaf.example.com",
+          cookies: { [cookieName]: "abc" },
+        }),
+      );
+      const sm = new SessionManager(new Config({ home }));
+      expect(sm.cookies()).toEqual({ [cookieName]: "abc" });
+    },
+  );
+
+  it("rejects a cache without a recognized session cookie", () => {
+    const home = tmpHome();
+    fs.writeFileSync(
+      path.join(home, "session.json"),
+      JSON.stringify({ cookies: { deviceHistory: "abc" } }),
+    );
+    const sm = new SessionManager(new Config({ home }));
+    expect(() => sm.cookies()).toThrow(AuthError);
+  });
 });

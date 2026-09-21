@@ -3,8 +3,8 @@
  *
  * Overleaf's login is protected by reCAPTCHA (and may use SSO/2FA), so Claudeleaf does not
  * automate credentials. `login` opens a real browser and waits for the user to sign in by
- * hand; once in, it extracts and caches the `overleaf_session2` cookie. The lightweight
- * fetch/WebSocket layers then reuse it.
+ * hand; once in, it extracts and caches the session cookie. The lightweight fetch/WebSocket
+ * layers then reuse it.
  */
 
 import fs from "node:fs";
@@ -15,8 +15,13 @@ import type { Config } from "./config.js";
 import { AuthError } from "./errors.js";
 import type { Cookies } from "./types.js";
 
-const RELEVANT_COOKIES = ["overleaf_session2", "deviceHistory"];
+const SESSION_COOKIE_NAMES = ["overleaf_session2", "overleaf.sid", "sharelatex.sid"];
+const RELEVANT_COOKIES = [...SESSION_COOKIE_NAMES, "deviceHistory"];
 const USER_ID_RE = /name="ol-user_id"\s+content="([^"]+)"/;
+
+function hasSessionCookie(cookies: Cookies): boolean {
+  return SESSION_COOKIE_NAMES.some((name) => Boolean(cookies[name]));
+}
 
 export function cookieHeader(cookies: Cookies): string {
   return Object.entries(cookies)
@@ -29,7 +34,7 @@ export function loadCachedCookies(config: Config): Cookies | null {
     const data = JSON.parse(fs.readFileSync(config.sessionPath, "utf8")) as {
       cookies?: Cookies;
     };
-    if (data.cookies && data.cookies["overleaf_session2"]) return data.cookies;
+    if (data.cookies && hasSessionCookie(data.cookies)) return data.cookies;
   } catch {
     /* missing or unreadable */
   }
@@ -159,7 +164,7 @@ export async function browserLogin(config: Config): Promise<Cookies> {
     }
 
     const cookies = extractCookies(await ctx.cookies(), config);
-    if (!cookies["overleaf_session2"]) {
+    if (!hasSessionCookie(cookies)) {
       throw new AuthError("signed in but no session cookie was found");
     }
     return cookies;

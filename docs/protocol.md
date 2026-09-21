@@ -13,7 +13,9 @@ Chrome preferred, persistent profile) and waits for the user to sign in by hand;
 is detected when the dashboard exposes a non-empty `ol-user_id` meta. It then extracts and
 caches:
 
-- `overleaf_session2` — the session cookie (the only credential the realtime layer needs),
+- the session cookie — `overleaf_session2` on Overleaf.com, `overleaf.sid` on current
+  self-hosted instances, or legacy `sharelatex.sid` (the only credential the realtime layer
+  needs),
 - `deviceHistory` — marks the device as known.
 
 Everything afterward is pure HTTP/WebSocket using the cached cookie.
@@ -29,7 +31,7 @@ This is account-level — no project id required.
 
 ```
 GET /socket.io/1/?projectId=<projectId>&esh=1&ssp=1&t=<unix_ms>
-Cookie: overleaf_session2=...
+Cookie: <session-cookie-name>=...
 ```
 
 Response body (text):
@@ -48,7 +50,7 @@ handshake response`s `Set-Cookie` so the GCLB value is forwarded.
 
 ```
 wss://www.overleaf.com/socket.io/1/websocket/<sid>?projectId=<projectId>&esh=1&ssp=1
-Cookie: overleaf_session2=...; GCLB=...
+Cookie: <session-cookie-name>=...; GCLB=...
 Origin: https://www.overleaf.com
 ```
 

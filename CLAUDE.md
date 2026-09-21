@@ -80,9 +80,10 @@ automate credentials. `claudeleaf login` (→ `SessionManager.login`) drives the
 falling back to `"msedge"`, then any Playwright-managed Chromium, else a clear error. A real
 headed browser is what passes Overleaf's invisible reCAPTCHA reliably; using the system browser
 also means **no Playwright browser download** (so `npx claudeleaf` stays light). The user signs
-in by hand; once `ol-user_id` appears it extracts the `overleaf_session2` cookie and caches it
-(`~/.claudeleaf/session.json`, mode 0600). The lightweight fetch/WebSocket layers reuse the
-cookie; the browser is only needed again when it expires.
+in by hand; once `ol-user_id` appears it extracts the session cookie (`overleaf_session2` on
+Overleaf.com, `overleaf.sid` on current self-hosted instances, or legacy `sharelatex.sid`) and
+caches it (`~/.claudeleaf/session.json`, mode 0600). The lightweight fetch/WebSocket layers
+reuse the cookie; the browser is only needed again when it expires.
 
 ## Listing projects
 
@@ -101,7 +102,8 @@ load-balancer affinity cookie that **must** be forwarded on the WebSocket, or th
 replies `7:::1+0` ("client not handshaken") and drops the connection.
 
 **WebSocket.** `wss://<host>/socket.io/1/websocket/<sid>?projectId=<id>&esh=1&ssp=1` with
-`Cookie: overleaf_session2=…; GCLB=…` and `Origin`. Frames are `<type>:<id>:<endpoint>:<data>`:
+the session cookie, optional `GCLB`, and `Origin`. Frames are
+`<type>:<id>:<endpoint>:<data>`:
 `1::` connect, `2::` heartbeat (echo it), `5:<id>+::<json>` event-wanting-ack, `5:::<json>`
 event, `6:::<id>+<json>` ack, `7` error, `0::` disconnect, `8` noop.
 

@@ -187,6 +187,30 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
+    "overleaf_upload_file",
+    {
+      description:
+        "Upload an image/figure (png, jpg, gif, svg, pdf, eps; max 50 MB) so LaTeX can \\includegraphics it. " +
+        "Give `path` (a local file path) or `base64` + `name`. `folder` defaults to the project root. " +
+        "A same-named file in the folder is replaced.",
+      inputSchema: {
+        project: z.string(),
+        path: z.string().optional(),
+        base64: z.string().optional(),
+        name: z.string().optional(),
+        folder: z.string().optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ project, path, base64, name, folder }) => {
+      if (!path === !base64) throw new Error("provide exactly one of `path` or `base64`");
+      const source = path ?? Buffer.from(base64 as string, "base64");
+      const res = await getClient().uploadFile(project, source, folder, name);
+      return result({ ok: true, path: res.path, id: res._id });
+    },
+  );
+
+  server.registerTool(
     "overleaf_delete_document",
     {
       description: "Delete a document or file from a project.",

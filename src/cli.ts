@@ -12,7 +12,7 @@ import { OverleafClient } from "./client.js";
 import { Config } from "./config.js";
 import { ClaudeleafError } from "./errors.js";
 
-const VALUE_FLAGS = new Set(["count"]);
+const VALUE_FLAGS = new Set(["count", "folder", "name"]);
 
 function parseArgs(args: string[]): { positionals: string[]; flags: Record<string, string | boolean> } {
   const positionals: string[] = [];
@@ -68,6 +68,8 @@ Usage: claudeleaf <command> [args]
   replace <project> <path> <old> <new> [--count N]
   set <project> <path>                    replace whole document with stdin
   search <project> <path> <query>         find text
+  upload <project> <localFile> [--folder DIR] [--name NAME]
+                                          upload an image/PDF for \includegraphics
   compile <project> [--draft] [--stop-on-first-error] [--log] [--warnings]
   mcp                                     run the MCP server over stdio
 
@@ -182,6 +184,18 @@ async function run(argv: string[]): Promise<number> {
         for (const hit of await client.search(project, positionals[1], positionals[2])) {
           console.log(`line ${hit.line}, col ${hit.column} (offset ${hit.offset})`);
         }
+        return 0;
+      }
+      case "upload": {
+        const file = positionals[1];
+        if (!file) {
+          console.error("error: 'upload' needs a local file path");
+          return 1;
+        }
+        const folder = typeof flags.folder === "string" ? flags.folder : undefined;
+        const name = typeof flags.name === "string" ? flags.name : undefined;
+        const res = await client.uploadFile(project, file, folder, name);
+        console.log(`Uploaded ${res.path} (id ${res._id ?? "?"})`);
         return 0;
       }
       case "compile": {

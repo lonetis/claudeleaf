@@ -94,9 +94,10 @@ export class RestClient {
   private async request(
     method: "POST" | "DELETE",
     path: string,
-    payload?: object,
+    payload?: object | FormData,
     timeoutMs = this.config.requestTimeout * 1000,
   ): Promise<unknown> {
+    const isForm = payload instanceof FormData;
     const url = `${this.config.baseUrl}${path}`;
     let last: Response | undefined;
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -108,15 +109,21 @@ export class RestClient {
         "User-Agent": this.config.userAgent,
         Referer: this.config.projectUrl(this.projectId),
         "X-CSRF-Token": await this.ensureCsrf(refresh),
-        "Content-Type": "application/json",
         Accept: "application/json",
       };
+      // For multipart bodies fetch sets Content-Type itself (it needs the boundary).
+      if (!isForm) headers["Content-Type"] = "application/json";
       let res: Response;
       try {
         res = await fetch(url, {
           method,
           headers,
-          body: method === "POST" ? JSON.stringify(payload ?? {}) : undefined,
+          body:
+            method === "POST"
+              ? isForm
+                ? (payload as FormData)
+                : JSON.stringify(payload ?? {})
+              : undefined,
           signal: AbortSignal.timeout(timeoutMs), // a stalled socket aborts and retries
         });
       } catch (e) {
@@ -151,6 +158,30 @@ export class RestClient {
       name,
       parent_folder_id: parentFolderId,
     }) as Promise<{ _id?: string }>;
+  }
+
+  /** Upload a binary file (image, PDF, ...) into a folder; replaces a same-named file. */
+  async uploadFile(
+    name: string,
+    parentFolderId: string,
+    data: Uint8Array,
+    mime: string,
+  ): Promise<{ _id?: string }> {
+    const form = new FormData();
+    form.append("relativePath", "null");
+    form.append("name", name);
+    form.append("type", mime);
+    form.append("qqfile", new Blob([data], { type: mime }), name);
+    const res = (await this.request(
+      "POST",
+      `/project/${this.projectId}/upload?folder_id=${encodeURIComponent(parentFolderId)}`,
+      form,
+      Math.max(this.config.requestTimeout, 120) * 1000,
+    )) as { success?: boolean; entity_id?: string; error?: string };
+    if (res.success === false || !res.entity_id) {
+      throw new ClaudeleafError(`upload of ${name} failed: ${res.error ?? "no entity id returned"}`);
+    }
+    return { _id: res.entity_id };
   }
 
   createFolder(name: string, parentFolderId: string): Promise<{ _id?: string }> {

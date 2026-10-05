@@ -220,3 +220,55 @@ describe("account project resolution", () => {
     await expect(resolve(client, "Dup")).rejects.toBeInstanceOf(ProjectNotFoundError);
   });
 });
+
+describe("uploadFile", () => {
+  const PNG = Buffer.from("iVBORw0KGgo=", "base64");
+
+  function withFakeRest(session: ProjectSession) {
+    const calls: { name: string; folderId: string; size: number; mime: string }[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (session as any).rest = {
+      uploadFile: async (name: string, folderId: string, data: Uint8Array, mime: string) => {
+        calls.push({ name, folderId, size: data.byteLength, mime });
+        return { _id: "file1" };
+      },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (session as any).rootFolderId = "root";
+    return calls;
+  }
+
+  it("uploads bytes, registers the file and replaces a same-named one", async () => {
+    const { session } = makeSession("x");
+    const calls = withFakeRest(session);
+    const res = await session.uploadFile(PNG, undefined, "plot.png");
+    expect(res.path).toBe("plot.png");
+    expect(calls).toEqual([{ name: "plot.png", folderId: "root", size: PNG.length, mime: "image/png" }]);
+    await session.uploadFile(PNG, undefined, "plot.png");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const files = (session as any).entities.filter((e: { type: string }) => e.type === "file");
+    expect(files).toHaveLength(1);
+  });
+
+  it("reads a local file and uses its basename", async () => {
+    const { session } = makeSession("x");
+    const calls = withFakeRest(session);
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const file = join(mkdtempSync(join(tmpdir(), "cl-")), "wandb_loss.png");
+    writeFileSync(file, PNG);
+    const res = await session.uploadFile(file);
+    expect(res.path).toBe("wandb_loss.png");
+    expect(calls[0].mime).toBe("image/png");
+  });
+
+  it("rejects unsupported types, empty data, missing names and bad names", async () => {
+    const { session } = makeSession("x");
+    withFakeRest(session);
+    await expect(session.uploadFile(PNG, undefined, "a.exe")).rejects.toThrow(/unsupported/);
+    await expect(session.uploadFile(Buffer.alloc(0), undefined, "a.png")).rejects.toThrow(/empty/);
+    await expect(session.uploadFile(PNG)).rejects.toThrow(/name is required/);
+    await expect(session.uploadFile(PNG, undefined, "../a.png")).rejects.toThrow(/invalid file name/);
+  });
+});

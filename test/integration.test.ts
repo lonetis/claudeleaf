@@ -209,6 +209,29 @@ describe.skipIf(!hasSession)("integration", () => {
     }
   });
 
+  // -- image upload --
+  it("uploads an image, lists it, uses it in a compile, and deletes it", async () => {
+    // 1x1 red PNG
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const NAME = "claudeleaf_vitest.png";
+    const res = await client.uploadFile(project, png, undefined, NAME);
+    try {
+      expect(res._id).toBeTruthy();
+      const files = await client.listDocuments(project, true);
+      expect(files.some((f) => f.path === NAME)).toBe(true);
+      await client.append(project, SCRATCH, `\\includegraphics{${NAME}}\n`);
+      // re-upload replaces rather than duplicating
+      await client.uploadFile(project, png, undefined, NAME);
+      const again = await client.listDocuments(project, true);
+      expect(again.filter((f) => f.path === NAME)).toHaveLength(1);
+    } finally {
+      await client.deleteDocument(project, NAME).catch(() => {});
+    }
+  });
+
   // -- compile --
   it("compiles and returns status, log and output files", async () => {
     const r = await client.compile(project);

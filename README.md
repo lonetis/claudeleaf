@@ -6,7 +6,7 @@ Bring Claude (and any agent) into Overleaf. Claudeleaf is a reliable TypeScript 
 
 - **Real editing, not git.** Edits go through Overleaf's live collaboration channel (ShareJS over Socket.IO), so they appear instantly to everyone in the project, attributed to your user.
 - **All your projects, one instance.** List every project you can access and edit any of them by id or name — no project configured up front.
-- **Full document control** — list documents, read text, insert at a position or line/column, replace ranges or literal text, delete ranges or lines, replace a whole document, and create/delete/rename files.
+- **Full document control** — list documents, read text, insert at a position or line/column, replace ranges or literal text, delete ranges or lines, replace a whole document, create/delete/rename files, and **upload images** (e.g. a local W&B plot PNG) for `\includegraphics`: `claudeleaf upload <project> plot.png --folder figures` or the `overleaf_upload_file` MCP tool.
 - **Review mode (track changes).** Submit any edit as a tracked change (a suggestion) with `trackChanges` instead of a direct edit, so a human accepts or rejects it in Overleaf. Requires track changes on the project (a premium feature).
 - **Comments.** Anchor a comment to a span of text (like selecting text and commenting in the editor) and list a document's comments with their threads.
 - **Compile & error logs** — trigger a LaTeX recompile and get back the status plus the parsed errors and warnings (with file and line), or the full raw log.

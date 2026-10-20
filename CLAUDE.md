@@ -311,7 +311,12 @@ MCP server with `npx -y claudeleaf mcp`) without cloning. What makes that work:
   GitHub identity token for a short-lived publish credential. This needs the trusted publisher
   configured on npmjs.com (repo `lonetis/claudeleaf`, workflow `publish.yml`), npm ≥ 11.5.1
   (hence Node 24 in that job), and `package.json`'s `repository.url` matching the GitHub repo —
-  npm attaches a provenance attestation and rejects the publish on a mismatch.
+  npm attaches a provenance attestation and rejects the publish on a mismatch. A second job,
+  after the npm one, mirrors each new version to **GitHub Packages** as `@lonetis/claudeleaf`
+  (GitHub Packages only accepts owner-scoped names, so the job renames the package before
+  publishing) using `GITHUB_TOKEN` with `packages: write`; the `repository` field links it to
+  the repo, so the package and its versions show on the repo page. npm stays the install
+  source — GitHub Packages requires auth even to install public packages.
 - `.github/workflows/ci.yml` — typecheck + build + test on PRs and non-`main` pushes.
 - In CI the live integration/MCP tests auto-skip (no cached session → no network), so `npm test`
   runs the unit suite only.

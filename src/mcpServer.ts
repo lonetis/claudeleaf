@@ -210,7 +210,7 @@ export function createServer(): McpServer {
         name: z.string().optional(),
         folder: z.string().optional(),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ project, path, base64, name, folder }) => {
       if (!path === !base64) throw new Error("provide exactly one of `path` or `base64`");

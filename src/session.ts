@@ -407,9 +407,16 @@ export class ProjectSession {
     folder?: string,
     name?: string,
   ): Promise<{ _id?: string; path: string }> {
+    const unsupported = (file: string) =>
+      new ClaudeleafError(
+        `unsupported file type for ${file} (allowed: ${Object.keys(UPLOAD_TYPES).join(", ")})`,
+      );
     let data: Uint8Array;
     let fileName = name;
     if (typeof source === "string") {
+      // Check the local file's own extension too, not just the uploaded name: otherwise `name`
+      // could relabel any readable file (e.g. a private key) as an image and upload it.
+      if (!UPLOAD_TYPES[extname(source).toLowerCase()]) throw unsupported(source);
       data = await readFile(source);
       fileName ??= basename(source);
     } else {
@@ -418,11 +425,7 @@ export class ProjectSession {
     }
     if (/[\\/]/.test(fileName)) throw new ClaudeleafError(`invalid file name: ${fileName}`);
     const mime = UPLOAD_TYPES[extname(fileName).toLowerCase()];
-    if (!mime) {
-      throw new ClaudeleafError(
-        `unsupported file type for ${fileName} (allowed: ${Object.keys(UPLOAD_TYPES).join(", ")})`,
-      );
-    }
+    if (!mime) throw unsupported(fileName);
     if (data.byteLength === 0) throw new ClaudeleafError(`${fileName} is empty`);
     if (data.byteLength > MAX_UPLOAD_BYTES) {
       throw new ClaudeleafError(`${fileName} exceeds the ${MAX_UPLOAD_BYTES / 1024 / 1024} MB upload limit`);

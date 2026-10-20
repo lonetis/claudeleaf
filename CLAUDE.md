@@ -177,8 +177,10 @@ parent_folder_id}`, `DELETE /project/<id>/{doc|file|folder}/<id>`, `POST .../<ty
 with `multipart/form-data` (`relativePath=null`, `name`, `type`, `qqfile`) + cookie + CSRF →
 `{success, entity_id, entity_type:"file"}`. A same-named file in the folder is replaced.
 `ProjectSession.uploadFile` takes a local path or a Buffer, allows png/jpg/gif/svg/pdf/eps up to
-50 MB, and registers the file in the local tree. `RestClient.request` sends `FormData` bodies
-without a `Content-Type` (fetch adds the boundary).
+50 MB, and registers the file in the local tree. For a local path the extension is checked on
+the source file as well as the uploaded name, so `name` cannot relabel an arbitrary file (e.g. a
+private key) as an image. `RestClient.request` sends `FormData` bodies without a `Content-Type`
+(fetch adds the boundary).
 
 **Compiling** is HTTP (CSRF + cookie), not realtime. `POST /project/<id>/compile?auto_compile=true`
 with body `{rootDoc_id, draft, check:"silent", incrementalCompilesEnabled, stopOnFirstError}`
@@ -236,11 +238,12 @@ state; instead:
   also `idempotentHint: false`, since each call kicks off a fresh build. The writes set
   `destructiveHint` explicitly (it would otherwise default to `true` whenever `readOnlyHint`
   is `false`): `true` for overwrite/remove tools (`replace_text`, `replace_range`,
-  `delete_range`, `delete_lines`, `set_document`, `delete_document`), `false` for the purely
-  additive ones (`insert_text`, `append_text`, `create_document`, `upload_file`, `add_comment`
-  — which only annotates, leaving the text unchanged — and `rename_document`, which changes a
-  name, losing no content). The seven write tools that change document text also take an optional
-  `trackChanges` to submit as a review-mode suggestion.
+  `delete_range`, `delete_lines`, `set_document`, `delete_document`, and `upload_file` — which
+  replaces a same-named file), `false` for the purely additive ones (`insert_text`,
+  `append_text`, `create_document`, `add_comment` — which only annotates, leaving the text
+  unchanged — and `rename_document`, which changes a name, losing no content). The seven write
+  tools that change document text also take an optional `trackChanges` to submit as a
+  review-mode suggestion.
 
 ## Configuration (optional environment variables)
 

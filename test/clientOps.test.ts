@@ -425,6 +425,18 @@ describe("uploadFile", () => {
     expect(calls[0].mime).toBe("image/png");
   });
 
+  it("refuses to relabel a non-image local file via `name`", async () => {
+    const { session } = makeSession("x");
+    const calls = withFakeRest(session);
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const file = join(mkdtempSync(join(tmpdir(), "cl-")), "id_rsa");
+    writeFileSync(file, "-----BEGIN OPENSSH PRIVATE KEY-----\n");
+    await expect(session.uploadFile(file, undefined, "figure.png")).rejects.toThrow(/unsupported/);
+    expect(calls).toHaveLength(0);
+  });
+
   it("rejects unsupported types, empty data, missing names and bad names", async () => {
     const { session } = makeSession("x");
     withFakeRest(session);

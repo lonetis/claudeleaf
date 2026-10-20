@@ -304,10 +304,19 @@ MCP server with `npx -y claudeleaf mcp`) without cloning. What makes that work:
   `files: ["dist"]` so the published tarball ships only the compiled output. `prepublishOnly`
   runs `npm run build`, so `dist/` is always fresh on publish.
 - `.github/workflows/publish.yml` — on push to `main` (or manual dispatch) it runs
-  `npm ci && npm run build && npm test`, then publishes **only if `package.json`'s version is
-  not already on the registry**. So a commit that bumps the version (`npm version patch`)
-  releases it; any other commit is a no-op. Needs an `NPM_TOKEN` repo secret (an npm automation
-  token with publish rights); `actions/setup-node` wires it in via `NODE_AUTH_TOKEN`.
+  `npm ci && npm run build && npm test`, then publishes to two registries, each **only if
+  `package.json`'s version is not already there**. So a commit that bumps the version
+  (`npm version patch`) releases it; any other commit is a no-op.
+  - **npm** (`claudeleaf`, the install source) via **trusted publishing** (OIDC) — no token
+    secret: the job's `id-token: write` permission lets npm trade the GitHub identity token for
+    a short-lived publish credential. Needs the trusted publisher configured on npmjs.com (repo
+    `lonetis/claudeleaf`, workflow `publish.yml`), npm ≥ 11.5.1 (hence Node 24), and
+    `package.json`'s `repository.url` matching the GitHub repo — npm attaches a provenance
+    attestation and rejects the publish on a mismatch.
+  - **GitHub Packages** (`@lonetis/claudeleaf`) — after the npm job, the same build is renamed
+    to the owner scope GitHub Packages requires and published with `GITHUB_TOKEN`
+    (`packages: write`); the `repository` field links it to the repo. Installing from GitHub
+    Packages needs auth even for public packages, so npm stays the documented install source.
 - `.github/workflows/ci.yml` — typecheck + build + test on PRs and non-`main` pushes.
 - In CI the live integration/MCP tests auto-skip (no cached session → no network), so `npm test`
   runs the unit suite only.

@@ -1,8 +1,15 @@
 name: Publish
 
-# Publishes to npm on every push to main, but only when package.json's version is one that
-# is not yet on the registry — so a commit that bumps the version releases it, and any other
-# commit is a harmless no-op. Bump with `npm version patch|minor|major` and push.
+# Releases on push to main: each job publishes package.json's version only if its registry does
+# not have it yet, so a commit that bumps the version (`npm version patch|minor|major`) releases
+# it and any other commit is a no-op.
+#
+# - npm (`claudeleaf`): npm trusted publishing (OIDC) — no token secret. Needs the trusted
+#   publisher configured on npmjs.com (lonetis/claudeleaf, publish.yml), npm >= 11.5.1 (bundled
+#   with Node 24), and package.json's repository.url matching this repo (npm attaches a
+#   provenance attestation).
+# - GitHub Packages (`@lonetis/claudeleaf`): the same build under the owner scope GitHub
+#   Packages requires, published with GITHUB_TOKEN and linked to this repo via `repository`.
 on:
   push:
     branches: [main]
@@ -12,16 +19,19 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  npm:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token for npm trusted publishing
     steps:
       - uses: actions/checkout@v4
 
+      # No dependency cache: a release build installs fresh from the lockfile.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: npm
 
       - run: npm ci
       - run: npm run build
@@ -32,10 +42,38 @@ jobs:
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
           if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
-            echo "$NAME@$VERSION is already published — skipping (bump the version to release)."
+            echo "$NAME@$VERSION is already on npm — skipping."
           else
-            echo "Publishing $NAME@$VERSION…"
             npm publish --access public
           fi
+
+  github-packages:
+    needs: npm # publish only a build that passed the tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@lonetis" # only this scope goes to GitHub Packages; dependencies stay on npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Publish to GitHub Packages if the version is new
+        run: |
+          NAME="@lonetis/claudeleaf"
+          npm pkg set name="$NAME"
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already on GitHub Packages — skipping."
+          else
+            npm publish
+          fi
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

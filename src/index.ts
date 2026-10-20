@@ -42,4 +42,4 @@ export type {
   CompileResult,
 } from "./types.js";
 
-export const version = "0.1.0";
+export const version = "0.3.0";

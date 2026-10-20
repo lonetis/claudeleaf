@@ -1,6 +1,6 @@
 {
   "name": "claudeleaf",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Bring Claude (and any agent) into Overleaf: a reliable bridge that drives the Overleaf web editor in real time via an SDK, CLI, and MCP server.",
   "type": "module",
   "license": "MIT",

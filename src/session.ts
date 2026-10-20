@@ -17,6 +17,8 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { basename, extname } from "node:path";
 
 import { SessionManager } from "./auth.js";
 import type { Config } from "./config.js";
@@ -393,6 +395,49 @@ export class ProjectSession {
       });
     }
     return result;
+  }
+
+  /**
+   * Upload a binary file (e.g. an image for `\includegraphics`) into the project.
+   * `source` is a local file path or a Buffer (then `name` is required). An existing file
+   * with the same name in the folder is replaced.
+   */
+  async uploadFile(
+    source: string | Uint8Array,
+    folder?: string,
+    name?: string,
+  ): Promise<{ _id?: string; path: string }> {
+    const unsupported = (file: string) =>
+      new ClaudeleafError(
+        `unsupported file type for ${file} (allowed: ${Object.keys(UPLOAD_TYPES).join(", ")})`,
+      );
+    let data: Uint8Array;
+    let fileName = name;
+    if (typeof source === "string") {
+      // Check the local file's own extension too, not just the uploaded name: otherwise `name`
+      // could relabel any readable file (e.g. a private key) as an image and upload it.
+      if (!UPLOAD_TYPES[extname(source).toLowerCase()]) throw unsupported(source);
+      data = await readFile(source);
+      fileName ??= basename(source);
+    } else {
+      if (!fileName) throw new ClaudeleafError("a name is required when uploading raw bytes");
+      data = source;
+    }
+    if (/[\\/]/.test(fileName)) throw new ClaudeleafError(`invalid file name: ${fileName}`);
+    const mime = UPLOAD_TYPES[extname(fileName).toLowerCase()];
+    if (!mime) throw unsupported(fileName);
+    if (data.byteLength === 0) throw new ClaudeleafError(`${fileName} is empty`);
+    if (data.byteLength > MAX_UPLOAD_BYTES) {
+      throw new ClaudeleafError(`${fileName} exceeds the ${MAX_UPLOAD_BYTES / 1024 / 1024} MB upload limit`);
+    }
+    const folderId = this.folderId(folder);
+    const result = await this.rest.uploadFile(fileName, folderId, data, mime);
+    const path = joinPath(folder, fileName);
+    this.entities = this.entities.filter((e) => !(e.path === path && e.type === "file"));
+    if (result._id) {
+      this.entities.push({ id: result._id, name: fileName, path, type: "file", folderId });
+    }
+    return { ...result, path };
   }
 
   async createFolder(name: string, folder?: string): Promise<{ _id?: string }> {
@@ -853,6 +898,17 @@ function validateRange(doc: Document, start: number, end: number): [number, numb
   if (s > e) [s, e] = [e, s];
   return [s, e];
 }
+
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const UPLOAD_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+  ".eps": "application/postscript",
+};
 
 function joinPath(folder: string | undefined, name: string): string {
   if (!folder || folder === "/" || folder === "") return name;

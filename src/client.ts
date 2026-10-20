@@ -227,6 +227,15 @@ export class OverleafClient {
     return (await this.project(project)).createDocument(name, folder);
   }
 
+  async uploadFile(
+    project: string,
+    source: string | Uint8Array,
+    folder?: string,
+    name?: string,
+  ): Promise<{ _id?: string; path: string }> {
+    return (await this.project(project)).uploadFile(source, folder, name);
+  }
+
   async createFolder(project: string, name: string, folder?: string): Promise<{ _id?: string }> {
     return (await this.project(project)).createFolder(name, folder);
   }

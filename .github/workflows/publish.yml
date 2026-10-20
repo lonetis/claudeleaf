@@ -2,7 +2,8 @@ name: Publish
 
 # Publishes on every push to main, but only a version that is not yet on the target registry —
 # so a commit that bumps the version releases it, and any other commit is a harmless no-op.
-# Bump with `npm version patch|minor|major` and push. Two registries, one job each:
+# Bump with `npm version patch|minor|major` and push. Two registries, one job each, plus a
+# GitHub Release per version:
 #
 # - npm (`claudeleaf` on registry.npmjs.org) — the install source. Authenticates with npm
 #   trusted publishing (OIDC): npm trades this job's GitHub identity token for a short-lived
@@ -14,6 +15,9 @@ name: Publish
 #   and its versions show on the repo page. GitHub Packages only accepts owner-scoped names, so
 #   the job renames the package before publishing. It authenticates with GITHUB_TOKEN, and the
 #   repository field links the package to this repo.
+# - GitHub Releases (`vX.Y.Z`) — one per version on npm, tagged at the commit that released it
+#   (the first commit on main carrying that version) with auto-generated notes. Every npm
+#   version without a release gets one, so missed runs and older versions are backfilled.
 on:
   push:
     branches: [main]
@@ -83,3 +87,40 @@ jobs:
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  github-release:
+    needs: publish # release only what reached npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create tags and releases
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history, to find the commit each version was released from
+
+      - name: Create a GitHub Release for each npm version that lacks one
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSIONS=$(npm view "$NAME" versions --json | node -p '[].concat(JSON.parse(require("fs").readFileSync(0, "utf8"))).join(" ")')
+
+          # A version's release commit is the first commit on main whose package.json carries it.
+          declare -A SHA_OF
+          for sha in $(git rev-list --first-parent --reverse HEAD -- package.json); do
+            v=$(git show "$sha:package.json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version' 2>/dev/null || true)
+            if [ -n "$v" ] && [ -z "${SHA_OF[$v]:-}" ]; then SHA_OF[$v]=$sha; fi
+          done
+
+          for v in $VERSIONS; do # oldest first, so the newest ends up marked "Latest"
+            TAG="v$v"
+            if gh release view "$TAG" >/dev/null 2>&1; then continue; fi
+            SHA=${SHA_OF[$v]:-}
+            if [ -z "$SHA" ]; then
+              echo "::warning::No commit on main carries version $v — skipping $TAG."
+              continue
+            fi
+            echo "Creating release $TAG at $SHA…"
+            gh release create "$TAG" --target "$SHA" --title "$TAG" --generate-notes \
+              --notes "Published to npm as [\`$NAME@$v\`](https://www.npmjs.com/package/$NAME/v/$v): \`npm install $NAME@$v\`"
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}

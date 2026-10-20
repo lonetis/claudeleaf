@@ -316,7 +316,10 @@ MCP server with `npx -y claudeleaf mcp`) without cloning. What makes that work:
   (GitHub Packages only accepts owner-scoped names, so the job renames the package before
   publishing) using `GITHUB_TOKEN` with `packages: write`; the `repository` field links it to
   the repo, so the package and its versions show on the repo page. npm stays the install
-  source — GitHub Packages requires auth even to install public packages.
+  source — GitHub Packages requires auth even to install public packages. A third job creates a
+  **GitHub Release** `vX.Y.Z` (tag + auto-generated notes) for every npm version that lacks
+  one, at the version's release commit — the first commit on `main` (first-parent) whose
+  `package.json` carries it — so it also backfills missed runs and older versions.
 - `.github/workflows/ci.yml` — typecheck + build + test on PRs and non-`main` pushes.
 - In CI the live integration/MCP tests auto-skip (no cached session → no network), so `npm test`
   runs the unit suite only.

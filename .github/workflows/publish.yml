@@ -1,14 +1,19 @@
 name: Publish
 
-# Publishes to npm on every push to main, but only when package.json's version is one that
-# is not yet on the registry — so a commit that bumps the version releases it, and any other
-# commit is a harmless no-op. Bump with `npm version patch|minor|major` and push.
+# Publishes on every push to main, but only a version that is not yet on the target registry —
+# so a commit that bumps the version releases it, and any other commit is a harmless no-op.
+# Bump with `npm version patch|minor|major` and push. Two registries, one job each:
 #
-# Authenticates with npm trusted publishing (OIDC): npm trades this job's GitHub identity token
-# for a short-lived publish credential, so there is no NPM_TOKEN secret to store or expire. It
-# needs the trusted publisher configured on npmjs.com (lonetis/claudeleaf, publish.yml), npm
-# >= 11.5.1 (bundled with Node 24), and package.json's repository.url matching this repo, since
-# npm also attaches a provenance attestation.
+# - npm (`claudeleaf` on registry.npmjs.org) — the install source. Authenticates with npm
+#   trusted publishing (OIDC): npm trades this job's GitHub identity token for a short-lived
+#   publish credential, so there is no NPM_TOKEN secret to store or expire. It needs the trusted
+#   publisher configured on npmjs.com (lonetis/claudeleaf, publish.yml), npm >= 11.5.1 (bundled
+#   with Node 24), and package.json's repository.url matching this repo, since npm also attaches
+#   a provenance attestation.
+# - GitHub Packages (`@lonetis/claudeleaf` on npm.pkg.github.com) — a mirror, so the package
+#   and its versions show on the repo page. GitHub Packages only accepts owner-scoped names, so
+#   the job renames the package before publishing. It authenticates with GITHUB_TOKEN, and the
+#   repository field links the package to this repo.
 on:
   push:
     branches: [main]
@@ -16,11 +21,13 @@ on:
 
 permissions:
   contents: read
-  id-token: write # OIDC token for npm trusted publishing
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token for npm trusted publishing
     steps:
       - uses: actions/checkout@v4
 
@@ -44,3 +51,35 @@ jobs:
             echo "Publishing $NAME@$VERSION…"
             npm publish --access public
           fi
+
+  github-packages:
+    needs: publish # mirror only a build that passed the tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@lonetis" # route only the @lonetis scope there; dependencies stay on npmjs
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Publish to GitHub Packages if the version is new
+        run: |
+          NAME="@lonetis/claudeleaf"
+          npm pkg set name="$NAME"
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already on GitHub Packages — skipping."
+          else
+            echo "Publishing $NAME@$VERSION to GitHub Packages…"
+            npm publish
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

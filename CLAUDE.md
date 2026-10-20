@@ -306,8 +306,12 @@ MCP server with `npx -y claudeleaf mcp`) without cloning. What makes that work:
 - `.github/workflows/publish.yml` — on push to `main` (or manual dispatch) it runs
   `npm ci && npm run build && npm test`, then publishes **only if `package.json`'s version is
   not already on the registry**. So a commit that bumps the version (`npm version patch`)
-  releases it; any other commit is a no-op. Needs an `NPM_TOKEN` repo secret (an npm automation
-  token with publish rights); `actions/setup-node` wires it in via `NODE_AUTH_TOKEN`.
+  releases it; any other commit is a no-op. It authenticates with **npm trusted publishing**
+  (OIDC) — no `NPM_TOKEN` secret: the job's `id-token: write` permission lets npm trade the
+  GitHub identity token for a short-lived publish credential. This needs the trusted publisher
+  configured on npmjs.com (repo `lonetis/claudeleaf`, workflow `publish.yml`), npm ≥ 11.5.1
+  (hence Node 24 in that job), and `package.json`'s `repository.url` matching the GitHub repo —
+  npm attaches a provenance attestation and rejects the publish on a mismatch.
 - `.github/workflows/ci.yml` — typecheck + build + test on PRs and non-`main` pushes.
 - In CI the live integration/MCP tests auto-skip (no cached session → no network), so `npm test`
   runs the unit suite only.

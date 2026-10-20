@@ -3,6 +3,12 @@ name: Publish
 # Publishes to npm on every push to main, but only when package.json's version is one that
 # is not yet on the registry — so a commit that bumps the version releases it, and any other
 # commit is a harmless no-op. Bump with `npm version patch|minor|major` and push.
+#
+# Authenticates with npm trusted publishing (OIDC): npm trades this job's GitHub identity token
+# for a short-lived publish credential, so there is no NPM_TOKEN secret to store or expire. It
+# needs the trusted publisher configured on npmjs.com (lonetis/claudeleaf, publish.yml), npm
+# >= 11.5.1 (bundled with Node 24), and package.json's repository.url matching this repo, since
+# npm also attaches a provenance attestation.
 on:
   push:
     branches: [main]
@@ -10,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # OIDC token for npm trusted publishing
 
 jobs:
   publish:
@@ -17,11 +24,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No dependency cache: a release build installs fresh from the lockfile.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: npm
 
       - run: npm ci
       - run: npm run build
@@ -37,5 +44,3 @@ jobs:
             echo "Publishing $NAME@$VERSION…"
             npm publish --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

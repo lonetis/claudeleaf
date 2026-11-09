@@ -41,7 +41,7 @@ const trackChanges = z
   );
 
 export function createServer(): McpServer {
-  const server = new McpServer({ name: "claudeleaf", version: "0.3.0" });
+  const server = new McpServer({ name: "claudeleaf", version: "0.4.0" });
 
   server.registerTool(
     "overleaf_list_projects",

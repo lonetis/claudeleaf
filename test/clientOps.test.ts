@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { SessionManager } from "../src/auth.js";
 import { OverleafClient } from "../src/client.js";
 import { Config } from "../src/config.js";
-import { EditConflictError, EditError, NotTransmittedError, ProjectNotFoundError } from "../src/errors.js";
+import { EditConflictError, EditError, NotTransmittedError, ProjectNotFoundError, TrackedChangeConflictError } from "../src/errors.js";
 import * as ot from "../src/ot.js";
 import { ProjectSession } from "../src/session.js";
 
@@ -444,5 +444,88 @@ describe("uploadFile", () => {
     await expect(session.uploadFile(Buffer.alloc(0), undefined, "a.png")).rejects.toThrow(/empty/);
     await expect(session.uploadFile(PNG)).rejects.toThrow(/name is required/);
     await expect(session.uploadFile(PNG, undefined, "../a.png")).rejects.toThrow(/invalid file name/);
+  });
+});
+
+describe("tracked changes: listing and the overwrite guard", () => {
+  // "hello brave world" with Kenny's pending insertion "brave " at [6, 12).
+  function withSuggestion() {
+    const m = makeSession("hello brave world");
+    m.fake.ranges = {
+      changes: [{ id: "c1", op: { p: 6, i: "brave " }, metadata: { user_id: "u-kenny", ts: "2026-11-08T09:00:00.000Z" } }],
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (m.session as any).project = {
+      owner: { _id: "u-owner", first_name: "Ada", email: "ada@example.org" },
+      members: [{ _id: "u-kenny", first_name: "Kenny", last_name: "S", email: "kenny@example.org" }],
+    };
+    return m;
+  }
+
+  it("listTrackedChanges decodes changes and names the author", async () => {
+    const { session } = withSuggestion();
+    expect(await session.listTrackedChanges("main.tex")).toEqual([
+      {
+        id: "c1",
+        kind: "insert",
+        text: "brave ",
+        offset: 6,
+        line: 0,
+        column: 6,
+        userId: "u-kenny",
+        author: "Kenny S",
+        email: "kenny@example.org",
+        timestamp: "2026-11-08T09:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("listTrackedChanges is empty when the doc has no ranges", async () => {
+    const { session } = makeSession("plain");
+    expect(await session.listTrackedChanges("main.tex")).toEqual([]);
+  });
+
+  it("refuses an edit that touches a suggestion and sends nothing", async () => {
+    const { session, fake } = withSuggestion();
+    const err = await session.replaceText("main.tex", "brave", "bold").catch((e) => e);
+    expect(err).toBeInstanceOf(TrackedChangeConflictError);
+    expect(err.message).toMatch(/insertion by Kenny S at 0:6/);
+    expect(err.changes.map((c: { id: string }) => c.id)).toEqual(["c1"]);
+    expect(fake.applies).toBe(0);
+    expect(fake.text).toBe("hello brave world");
+  });
+
+  it("refuses for tracked edits too (a suggestion on a suggestion)", async () => {
+    const { session, fake } = withSuggestion();
+    await expect(session.insertAt("main.tex", 8, "x", { trackChanges: true })).rejects.toBeInstanceOf(TrackedChangeConflictError);
+    expect(fake.applies).toBe(0);
+  });
+
+  it("lets edits elsewhere through", async () => {
+    const { session, fake } = withSuggestion();
+    await session.replaceText("main.tex", "world", "there");
+    expect(fake.text).toBe("hello brave there");
+  });
+
+  it("reads fresh ranges: a suggestion made after the doc was opened still blocks", async () => {
+    const { session, fake } = makeSession("hello brave world");
+    await session.readDocument("main.tex"); // opened while there were no suggestions
+    fake.ranges = { changes: [{ id: "late", op: { p: 6, i: "brave " } }] };
+    await expect(session.deleteRange("main.tex", 6, 11)).rejects.toBeInstanceOf(TrackedChangeConflictError);
+  });
+
+  it("overwriteTrackedChanges skips the check", async () => {
+    const { session, fake } = withSuggestion();
+    await session.replaceText("main.tex", "brave", "bold", 0, { overwriteTrackedChanges: true });
+    expect(fake.text).toBe("hello bold world");
+  });
+
+  it("does not block comments on suggested text", async () => {
+    const { session, fake } = withSuggestion();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (session as any).rest = { postThreadMessage: async () => ({}) };
+    const c = await session.addComment("main.tex", 6, 11, "nice");
+    expect(c.text).toBe("brave");
+    expect(fake.applies).toBe(1);
   });
 });

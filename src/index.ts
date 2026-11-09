@@ -26,6 +26,7 @@ export {
   DocumentNotFoundError,
   EditError,
   EditConflictError,
+  TrackedChangeConflictError,
 } from "./errors.js";
 export type {
   Cookies,
@@ -35,6 +36,7 @@ export type {
   ConnectedUser,
   Comment,
   CommentMessage,
+  TrackedChange,
   OutputFile,
   LogLevel,
   LogEntry,

@@ -67,6 +67,33 @@ export interface Comment {
   messages: CommentMessage[];
 }
 
+/**
+ * A pending tracked change (a review-mode suggestion) in a document. An `insert` is text that
+ * is in the document at `[offset, offset + text.length)`; a `delete` is text that has been
+ * removed from the document but is kept as a suggestion anchored at `offset` (shown struck
+ * through until someone accepts or rejects it).
+ */
+export interface TrackedChange {
+  /** Overleaf's change id. */
+  id: string;
+  kind: "insert" | "delete";
+  /** The suggested inserted text, or the text suggested for deletion. */
+  text: string;
+  /** Character offset in the `\n`-joined document. */
+  offset: number;
+  /** 0-based line of `offset`. */
+  line: number;
+  /** 0-based column of `offset`. */
+  column: number;
+  /** Overleaf user id of the author. */
+  userId?: string;
+  /** Author's name, if the user is a member of the project. */
+  author?: string;
+  email?: string;
+  /** ISO timestamp of the change. */
+  timestamp?: string;
+}
+
 /** A file produced by a compile (log, pdf, aux, ...). `url` is absolute and fetchable. */
 export interface OutputFile {
   path: string;

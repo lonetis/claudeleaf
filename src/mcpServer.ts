@@ -35,7 +35,9 @@ const trackChanges = z
   .describe(
     "Submit as a tracked change (review-mode suggestion) instead of a direct edit, for a " +
       "human to accept or reject. Inserts become tracked insertions; deletions keep the removed " +
-      "text struck through. Requires track changes to be available on the project (premium).",
+      "text struck through. Requires track changes to be available on the project (premium). " +
+      "Every text edit is refused, with nothing sent, if it would touch a pending suggestion " +
+      "(see overleaf_list_tracked_changes); then ask the human instead of working around it.",
   );
 
 export function createServer(): McpServer {
@@ -283,6 +285,20 @@ export function createServer(): McpServer {
       annotations: { readOnlyHint: true },
     },
     async ({ project, path }) => result(await getClient().listComments(project, path)),
+  );
+
+  server.registerTool(
+    "overleaf_list_tracked_changes",
+    {
+      description:
+        "List a document's pending tracked changes (review-mode suggestions) — each with kind " +
+        "(insert: text in the document; delete: text removed but kept as a suggestion), the text, " +
+        "position (offset/line/column), author and time. Edits that would touch one are refused, " +
+        "so check here before editing text a collaborator may have suggested changes to.",
+      inputSchema: { project: z.string(), path: z.string() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ project, path }) => result(await getClient().listTrackedChanges(project, path)),
   );
 
   server.registerTool(

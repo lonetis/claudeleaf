@@ -30,6 +30,7 @@ import {
   EditConflictError,
   EditError,
   NotTransmittedError,
+  TrackedChangeConflictError,
 } from "./errors.js";
 import { parseLatexLog } from "./logParser.js";
 import * as ot from "./ot.js";
@@ -43,7 +44,9 @@ import type {
   Entity,
   OutputFile,
   ProjectInfo,
+  TrackedChange,
 } from "./types.js";
+import { findConflicts, parseChanges, type ParsedChange } from "./trackedChanges.js";
 import { Deferred, Mutex, sleep } from "./util.js";
 
 const TREE_EVENTS = new Set([
@@ -68,6 +71,14 @@ type ConfirmResult = { status: "confirmed"; version?: number } | { status: "drop
  */
 export interface EditOptions {
   trackChanges?: boolean;
+  /**
+   * Allow the edit to change text inside or at the edge of a pending tracked change. By
+   * default an edit that would touch someone's suggestion is refused with a
+   * {@link TrackedChangeConflictError} before anything is sent, because it would silently
+   * alter or remove that suggestion (Overleaf reports a removed insertion to its author as
+   * "rejected"). The check re-joins the document before each edit to read fresh ranges.
+   */
+  overwriteTrackedChanges?: boolean;
 }
 
 interface PendingEdit {
@@ -84,7 +95,7 @@ interface RawCommentRange {
 /** The ranges a `joinDoc {encodeRanges:true}` ack carries alongside the document. */
 interface DocRanges {
   comments?: RawCommentRange[];
-  changes?: unknown[];
+  changes?: unknown;
 }
 
 export class ProjectSession {
@@ -364,6 +375,46 @@ export class ProjectSession {
         messages,
       }];
     });
+  }
+
+  // -- tracked changes --------------------------------------------------
+  /**
+   * List a document's pending tracked changes (review-mode suggestions), in document order,
+   * with their author where the author is a member of the project. Read-only.
+   */
+  async listTrackedChanges(path: string): Promise<TrackedChange[]> {
+    const doc = await this.openDoc(path);
+    // Through joinDoc for the same reasons as listComments: a failed join raises, and the
+    // offsets are mapped against the text of this same join.
+    const ranges = await this.mutex(doc.id).runExclusive(() => this.joinDoc(doc));
+    return parseChanges(ranges.changes)
+      .sort((a, b) => a.offset - b.offset)
+      .map((c) => this.describeChange(doc, c));
+  }
+
+  private describeChange(doc: Document, c: ParsedChange): TrackedChange {
+    const [line, column] = doc.offsetToRowcol(c.offset);
+    const user = c.userId ? this.projectUser(c.userId) : undefined;
+    const name = user ? [user.first_name, user.last_name].filter(Boolean).join(" ") : "";
+    return {
+      id: c.id,
+      kind: c.kind,
+      text: c.text,
+      offset: c.offset,
+      line,
+      column,
+      userId: c.userId,
+      author: name || undefined,
+      email: user?.email as string | undefined,
+      timestamp: c.timestamp,
+    };
+  }
+
+  /** The owner or member with this user id, from the joinProject payload. */
+  private projectUser(userId: string): Record<string, any> | undefined {
+    const owner = this.project.owner as Record<string, any> | undefined;
+    const people = [owner, ...((this.project.members as Record<string, any>[]) ?? [])];
+    return people.find((u) => u && (u._id === userId || u.id === userId));
   }
 
   // -- presence & structure ---------------------------------------------
@@ -665,9 +716,20 @@ export class ProjectSession {
     return this.mutex(doc.id).runExclusive(async () => {
       let lastError: Error | undefined;
       for (let attempt = 0; attempt < 4; attempt++) {
-        await this.ensureJoined(doc);
+        // Unless overwriting suggestions is allowed, re-join to get the current ranges: the
+        // local mirror tracks text, not ranges, so ranges from an earlier join may be stale.
+        let ranges: DocRanges | undefined;
+        if (opts.overwriteTrackedChanges) await this.ensureJoined(doc);
+        else ranges = await this.joinDoc(doc);
         const { op, cursor } = build(doc);
         if (op.length === 0) return doc;
+        if (ranges) {
+          const touched = findConflicts(op, parseChanges(ranges.changes));
+          if (touched.length > 0) {
+            const described = touched.map((c) => this.describeChange(doc, c));
+            throw new TrackedChangeConflictError(conflictMessage(doc.path, described), described);
+          }
+        }
 
         let newText: string;
         try {
@@ -886,6 +948,20 @@ export class ProjectSession {
       }
     }
   }
+}
+
+function conflictMessage(path: string, changes: TrackedChange[]): string {
+  const shown = changes.slice(0, 3).map((c) => {
+    const who = c.author ?? c.email ?? c.userId ?? "unknown author";
+    const text = c.text.length > 60 ? c.text.slice(0, 57) + "..." : c.text;
+    return `${c.kind === "insert" ? "insertion" : "deletion"} by ${who} at ${c.line}:${c.column} ${JSON.stringify(text)}`;
+  });
+  const more = changes.length > 3 ? ` and ${changes.length - 3} more` : "";
+  return (
+    `edit to ${path} not sent: it would touch ${changes.length} pending tracked change(s) - ` +
+    `${shown.join("; ")}${more}. Ask the author to accept or reject the suggestion first ` +
+    "(or retry with overwriteTrackedChanges)."
+  );
 }
 
 function clamp(value: number, length: number): number {

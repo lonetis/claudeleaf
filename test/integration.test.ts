@@ -233,7 +233,12 @@ describe.skipIf(!testProject)("integration", () => {
     expect(r.pdfUrl).toContain("output.pdf");
   });
 
-  it("surfaces LaTeX errors with line numbers (break + restore main.tex)", async () => {
+  it("surfaces LaTeX errors with line numbers (break + restore main.tex)", async (ctx) => {
+    // Replacing and restoring the whole document would drop any pending suggestion in it (a
+    // restore cannot recreate tracked changes), and the overwrite guard refuses it anyway.
+    if ((await client.listTrackedChanges(project, "main.tex")).length > 0) {
+      ctx.skip("main.tex has pending tracked changes");
+    }
     const original = await client.readDocument(project, "main.tex");
     const broken = "\\documentclass{article}\n\\begin{document}\nok\n\\undefinedcommandhere\n\\end{document}\n";
     try {

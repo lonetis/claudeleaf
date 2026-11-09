@@ -11,6 +11,24 @@ import type { ProjectSummary } from "./types.js";
 import { sleep } from "./util.js";
 
 const CSRF_RE = /name="ol-csrfToken"\s+content="([^"]+)"/;
+
+/**
+ * Resolve a server-relative `path` against the configured Overleaf instance and refuse any
+ * result on another origin. Requests carry the session cookie, so a path the server sent back
+ * (e.g. a compile output URL) must not be able to redirect them: plain concatenation would turn
+ * `@evil.example/x` into `https://www.overleaf.com@evil.example/x`, whose host is evil.example.
+ */
+export function sameOriginUrl(baseUrl: string, path: string): string {
+  if (!path.startsWith("/") || path.startsWith("//")) {
+    throw new ClaudeleafError(`refusing a non-relative Overleaf path: ${JSON.stringify(path)}`);
+  }
+  const base = new URL(baseUrl);
+  const url = new URL(base.pathname.replace(/\/+$/, "") + path, base.origin);
+  if (url.origin !== base.origin) {
+    throw new ClaudeleafError(`refusing a request off ${base.origin}: ${JSON.stringify(path)}`);
+  }
+  return url.toString();
+}
 type EntityType = "doc" | "file" | "folder";
 
 /** List every project the signed-in account can access (via the dashboard JSON API). */
@@ -98,7 +116,7 @@ export class RestClient {
     timeoutMs = this.config.requestTimeout * 1000,
   ): Promise<unknown> {
     const isForm = payload instanceof FormData;
-    const url = `${this.config.baseUrl}${path}`;
+    const url = sameOriginUrl(this.config.baseUrl, path);
     let last: Response | undefined;
     for (let attempt = 0; attempt < 4; attempt++) {
       const refresh =
@@ -228,7 +246,7 @@ export class RestClient {
   /** GET an output file (e.g. the log) as text. `path` is server-relative, incl. query. */
   async fetchText(path: string): Promise<string> {
     const ch = await this.cookieHdr(false);
-    const res = await fetch(`${this.config.baseUrl}${path}`, {
+    const res = await fetch(sameOriginUrl(this.config.baseUrl, path), {
       headers: {
         Cookie: ch,
         "User-Agent": this.config.userAgent,

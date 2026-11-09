@@ -4,12 +4,13 @@ import { loadCachedCookies, validateCookies } from "../src/auth.js";
 import { OverleafClient } from "../src/client.js";
 import { Config } from "../src/config.js";
 import { sleep } from "../src/util.js";
+import { resolveTestProject } from "./liveProject.js";
 
 const config = Config.fromEnv();
 const cookies = loadCachedCookies(config);
 const hasSession = cookies !== null && (await validateCookies(config, cookies));
 
-const TEST_PROJECT = process.env.OVERLEAF_TEST_PROJECT || "6a3d5db5d05194a82760d74b";
+const testProject = hasSession ? await resolveTestProject(config) : null;
 const SCRATCH = "claudeleaf_vitest.tex";
 const BASELINE = "Line zero\nLine one\nLine two\n";
 
@@ -22,23 +23,13 @@ async function waitFor(predicate: () => Promise<boolean>, timeout = 15000): Prom
   return predicate();
 }
 
-describe.skipIf(!hasSession)("integration", () => {
+describe.skipIf(!testProject)("integration", () => {
   let client: OverleafClient;
   let project: string;
 
   beforeAll(async () => {
     client = new OverleafClient(config);
-    const projects = await client.listProjects();
-    const ids = new Set(projects.map((p) => p.id));
-    if (ids.has(TEST_PROJECT)) {
-      project = TEST_PROJECT;
-    } else {
-      const writable = projects.find(
-        (p) => (p.accessLevel === "owner" || p.accessLevel === "readAndWrite") && !p.archived && !p.trashed,
-      );
-      if (!writable) throw new Error("no writable project available");
-      project = writable.id;
-    }
+    project = testProject!;
     const existing = (await client.listDocuments(project)).map((d) => d.path);
     if (existing.includes(SCRATCH)) await client.deleteDocument(project, SCRATCH);
     await client.createDocument(project, SCRATCH);

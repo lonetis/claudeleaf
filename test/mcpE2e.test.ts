@@ -9,12 +9,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadCachedCookies, validateCookies } from "../src/auth.js";
 import { OverleafClient } from "../src/client.js";
 import { Config } from "../src/config.js";
+import { resolveTestProject } from "./liveProject.js";
 
 const config = Config.fromEnv();
 const cookies = loadCachedCookies(config);
 const hasSession = cookies !== null && (await validateCookies(config, cookies));
 
-const TEST_PROJECT = process.env.OVERLEAF_TEST_PROJECT || "6a3d5db5d05194a82760d74b";
+const testProject = hasSession ? await resolveTestProject(config) : null;
 const SCRATCH = "claudeleaf_mcp_vitest.tex";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -26,16 +27,13 @@ function toolText(res: { content: unknown }): string {
     .join("\n");
 }
 
-describe.skipIf(!hasSession)("mcp e2e", () => {
+describe.skipIf(!testProject)("mcp e2e", () => {
   let client: OverleafClient;
   let project: string;
 
   beforeAll(async () => {
     client = new OverleafClient(config);
-    const projects = await client.listProjects();
-    project = projects.some((p) => p.id === TEST_PROJECT)
-      ? TEST_PROJECT
-      : projects.find((p) => p.accessLevel === "owner" || p.accessLevel === "readAndWrite")!.id;
+    project = testProject!;
     const existing = (await client.listDocuments(project)).map((d) => d.path);
     if (existing.includes(SCRATCH)) await client.deleteDocument(project, SCRATCH);
     await client.createDocument(project, SCRATCH);

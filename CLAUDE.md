@@ -39,6 +39,7 @@ src/
   protocol.ts     Socket.IO 0.9 frame encode/decode (pure)
   ot.ts           ShareJS ops, offset<->rowcol, diff, wire encoding, git-blob hash (pure)
   logParser.ts    parse pdfTeX/LaTeX output.log into errors/warnings/bad-boxes (pure)
+  trackedChanges.ts  parse ranges.changes; find the suggestions an op would touch (pure)
   document.ts     Document: local mirror of one open doc (text + version + generation)
   types.ts        shared types (Entity, ProjectSummary, ProjectInfo, CompileResult, ...)
   realtime.ts     RealtimeConnection(projectId): WS transport, acks, heartbeat, reconnect
@@ -150,6 +151,24 @@ UTF-8 (do not decode). The resolve/reopen/delete thread routes return 404 on ove
 Claudeleaf ships only create + list. Exposed as `addComment`/`listComments` (SDK) and
 `overleaf_add_comment`/`overleaf_list_comments` (MCP).
 
+**Reading tracked changes and the overwrite guard.** `ranges.changes` entries are
+`{id, op:{p,i}|{p,d}, metadata:{user_id,ts}}`: a tracked insertion is snapshot text at
+`[p, p+i.length)`, a tracked deletion is text no longer in the snapshot, anchored at the point
+`p`; the text is the realtime byte-view (decode it). `trackedChanges.ts` (pure) parses them and
+`findConflicts(op, changes)` returns the ones an op would touch, carrying positions through the
+op's components. Rules: an insert conflicts strictly inside an insertion or exactly on a
+deletion anchor; a delete conflicts when it overlaps an insertion or has a deletion anchor
+strictly inside it; edges are allowed so the neighbouring word stays editable (per Overleaf's
+change tracker an edge insert shifts or leaves a suggestion and merges only into a tracked
+insert of the same user - not yet verified live); comment ops never conflict. `submit` re-joins
+the doc before every attempt unless `EditOptions.overwriteTrackedChanges` is set (the mirror
+tracks text, not ranges, so earlier ranges may be stale) and throws `TrackedChangeConflictError`
+(with `.changes`) before sending. Why: an edit inside a co-author's pending suggestion silently
+rewrites or removes it, and Overleaf mails its author that the suggestion was rejected.
+`listTrackedChanges` names authors from the project's owner/members. The MCP exposes
+`overleaf_list_tracked_changes` but deliberately no override, so an agent asks a human instead;
+the CLI has `changes` and `--overwrite-tracked-changes`.
+
 **Hash.** Overleaf's optional ShareJS hash is git-blob SHA-1 (`ot.gitBlobHash`). We **omit
 it**: the server treats it as optional, and a mismatch is fatal (`otUpdateError "Invalid
 hash"` + disconnect), so omitting it is strictly more reliable.
@@ -233,7 +252,8 @@ state; instead:
 - **MCP server stays minimal** — every tool is a one-line wrapper; the server stays alive
   until the client disconnects (stdin close), then exits. Each tool carries MCP
   `annotations`. `readOnlyHint` is `true` for the reads (`list_projects`, `project_info`,
-  `list_documents`, `read_document`, `search`, `connected_users`, `list_comments`, `compile`)
+  `list_documents`, `read_document`, `search`, `connected_users`, `list_comments`,
+  `list_tracked_changes`, `compile`)
   and `false` for the writes. `compile` is read-only (it never mutates project content) but
   also `idempotentHint: false`, since each call kicks off a fresh build. The writes set
   `destructiveHint` explicitly (it would otherwise default to `true` whenever `readOnlyHint`
@@ -265,7 +285,7 @@ No configuration is required. Overrides (mainly for self-hosted / tuning):
 `project(idOrName)` → `ProjectSession`. All document methods take a `project` (id or name) as
 the first argument and are `async`: `projectInfo`, `listDocuments`, `readDocument`, `getLines`,
 `documentVersion`, `search`, `insertAt`, `insert`, `append`, `deleteRange`, `replaceRange`,
-`replaceText`, `setText`, `deleteLines`, `setCursor`, `getConnectedUsers`, `createDocument`,
+`replaceText`, `setText`, `deleteLines`, `setCursor`, `getConnectedUsers`, `listTrackedChanges`, `createDocument`,
 `uploadFile`, `createFolder`, `deleteDocument`, `renameDocument`, `resync`, `compile`. `ProjectSession`
 exposes the same methods without the leading `project` argument. Every edit method takes an
 optional trailing `EditOptions` (`{trackChanges?}`) — set `trackChanges` to submit the edit as

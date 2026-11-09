@@ -80,6 +80,7 @@ Usage: claudeleaf <command> [args]
   comment <project> <path> <start> <end> [message|-]
                                           comment on the [start,end) span
   comments <project> <path>               list a document's comments
+  changes <project> <path>                list a document's pending tracked changes
   upload <project> <localFile> [--folder DIR] [--name NAME]
                                           upload an image/PDF for \includegraphics
   compile <project> [--draft] [--stop-on-first-error] [--log] [--warnings]
@@ -89,7 +90,9 @@ project is an id or name. line/column are 0-based; start/end are character offse
 
 The editing commands (append, insert, replace, set) accept --track-changes to
 submit the edit as a review-mode suggestion instead of a direct edit (requires
-track changes on the project, a premium feature).`;
+track changes on the project, a premium feature). They refuse, sending nothing,
+an edit that would touch a pending tracked change; --overwrite-tracked-changes
+skips that check.`;
 
 async function run(argv: string[]): Promise<number> {
   const command = argv[0];
@@ -149,7 +152,10 @@ async function run(argv: string[]): Promise<number> {
     return 1;
   }
   // Editing commands share this: submit as a review-mode tracked change instead of a direct edit.
-  const editOpts = { trackChanges: boolFlag(flags["track-changes"]) };
+  const editOpts = {
+    trackChanges: boolFlag(flags["track-changes"]),
+    overwriteTrackedChanges: boolFlag(flags["overwrite-tracked-changes"]),
+  };
   const editedHow = editOpts.trackChanges ? " (as a tracked change)" : "";
   try {
     switch (command) {
@@ -228,6 +234,19 @@ async function run(argv: string[]): Promise<number> {
           const state = c.resolved ? " [resolved]" : "";
           console.log(`${c.line}:${c.column}  ${JSON.stringify(c.text)}${state}`);
           for (const m of c.messages) console.log(`    ${m.author ?? "?"}: ${m.content}`);
+        }
+        return 0;
+      }
+      case "changes": {
+        const changes = await client.listTrackedChanges(project, positionals[1]);
+        if (changes.length === 0) {
+          console.log("No tracked changes.");
+          return 0;
+        }
+        for (const c of changes) {
+          const who = c.author ?? c.email ?? c.userId ?? "?";
+          const when = c.timestamp ? ` ${c.timestamp}` : "";
+          console.log(`${c.line}:${c.column}  ${c.kind.padEnd(6)}  ${who}${when}  ${JSON.stringify(c.text)}`);
         }
         return 0;
       }

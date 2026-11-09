@@ -4,6 +4,8 @@
  * All errors derive from {@link ClaudeleafError}, so callers can catch the whole family.
  */
 
+import type { TrackedChange } from "./types.js";
+
 export class ClaudeleafError extends Error {
   constructor(message: string) {
     super(message);
@@ -47,3 +49,18 @@ export class EditError extends ClaudeleafError {}
  * in most cases; this surfaces only when retries are exhausted.
  */
 export class EditConflictError extends EditError {}
+
+/**
+ * The edit would change text inside or at the edge of a pending tracked change (a review-mode
+ * suggestion), which would silently alter or remove that suggestion. Nothing was sent. Ask the
+ * suggestion's author to accept or reject it first, or retry with `overwriteTrackedChanges`.
+ */
+export class TrackedChangeConflictError extends EditError {
+  constructor(
+    message: string,
+    /** The suggestions the edit would have touched. */
+    readonly changes: TrackedChange[],
+  ) {
+    super(message);
+  }
+}

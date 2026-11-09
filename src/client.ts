@@ -27,6 +27,7 @@ import type {
   Entity,
   ProjectInfo,
   ProjectSummary,
+  TrackedChange,
 } from "./types.js";
 import { Mutex } from "./util.js";
 
@@ -212,6 +213,11 @@ export class OverleafClient {
 
   async listComments(project: string, path: string): Promise<Comment[]> {
     return (await this.project(project)).listComments(path);
+  }
+
+  // -- tracked changes --------------------------------------------------
+  async listTrackedChanges(project: string, path: string): Promise<TrackedChange[]> {
+    return (await this.project(project)).listTrackedChanges(path);
   }
 
   // -- presence & structure ---------------------------------------------

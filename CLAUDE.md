@@ -160,7 +160,10 @@ op's components. Rules: an insert conflicts strictly inside an insertion or exac
 deletion anchor; a delete conflicts when it overlaps an insertion or has a deletion anchor
 strictly inside it; edges are allowed so the neighbouring word stays editable (per Overleaf's
 change tracker an edge insert shifts or leaves a suggestion and merges only into a tracked
-insert of the same user - not yet verified live); comment ops never conflict. `submit` re-joins
+insert of the same user; verified live that direct inserts at both edges of a tracked insertion
+leave its text unchanged, with suggestion and edit from one account - a second author not yet
+tested); comment ops never conflict. The live compile test skips itself when `main.tex` has
+pending suggestions, since its break-and-restore would drop them. `submit` re-joins
 the doc before every attempt unless `EditOptions.overwriteTrackedChanges` is set (the mirror
 tracks text, not ranges, so earlier ranges may be stale) and throws `TrackedChangeConflictError`
 (with `.changes`) before sending. Why: an edit inside a co-author's pending suggestion silently

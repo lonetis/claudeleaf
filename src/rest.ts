@@ -236,6 +236,15 @@ export class RestClient {
     await this.request("POST", `/project/${this.projectId}/thread/${threadId}/messages`, { content });
   }
 
+  /**
+   * Accept pending tracked changes of a doc (what the review panel's Accept does). The text is
+   * unchanged (an accepted insertion stays, an accepted deletion is already gone); only the
+   * ranges lose these changes, and the server broadcasts `accept-changes` to the project.
+   */
+  async acceptChanges(docId: string, changeIds: string[]): Promise<void> {
+    await this.request("POST", `/project/${this.projectId}/doc/${docId}/changes/accept`, { change_ids: changeIds });
+  }
+
   /** Fetch every comment thread in the project, keyed by thread id. */
   async getThreads(): Promise<Record<string, RawThread>> {
     return (await this.request("GET", `/project/${this.projectId}/threads`)) as Record<string, RawThread>;

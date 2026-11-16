@@ -130,6 +130,17 @@ describe.skipIf(!testProject)("integration", () => {
     expect(hits[0].line).toBe(0);
   });
 
+  it("edits inside one's own suggestion, then accepts it", async () => {
+    await client.insertAt(project, SCRATCH, 0, "OWN SUGGESTION ", { trackChanges: true });
+    await client.insertAt(project, SCRATCH, 4, "[more] ", { trackChanges: true }); // inside it: allowed
+    const changes = await client.listTrackedChanges(project, SCRATCH);
+    expect(changes.map((c) => [c.kind, c.text])).toEqual([["insert", "OWN [more] SUGGESTION "]]);
+    const accepted = await client.acceptTrackedChanges(project, SCRATCH, changes.map((c) => c.id));
+    expect(accepted).toHaveLength(1);
+    expect(await client.listTrackedChanges(project, SCRATCH)).toEqual([]);
+    expect((await client.readDocument(project, SCRATCH)).startsWith("OWN [more] SUGGESTION Line zero")).toBe(true);
+  });
+
   it("version increments", async () => {
     const v0 = await client.documentVersion(project, SCRATCH);
     await client.append(project, SCRATCH, "x");

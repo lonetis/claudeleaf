@@ -470,6 +470,7 @@ describe("tracked changes: listing and the overwrite guard", () => {
     expect(await session.listTrackedChanges("main.tex")).toEqual([
       {
         id: "c1",
+        path: "main.tex",
         kind: "insert",
         text: "brave ",
         offset: 6,
@@ -579,6 +580,45 @@ describe("tracked changes: listing and the overwrite guard", () => {
       const { session, fake } = withMine();
       await session.deleteRange("main.tex", 8, 14, { overwriteTrackedChanges: true });
       expect(fake.text).toBe("hello brw world");
+    });
+  });
+
+  describe("accepting", () => {
+    function withAccept() {
+      const m = withSuggestion();
+      const sent: { docId: string; ids: string[] }[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (m.session as any).rest = {
+        currentUserId: async () => "u-owner",
+        acceptChanges: async (docId: string, ids: string[]) => void sent.push({ docId, ids }),
+      };
+      return { ...m, sent };
+    }
+
+    it("accepts pending changes by id and returns them", async () => {
+      const { session, fake, sent } = withAccept();
+      const accepted = await session.acceptTrackedChanges("main.tex", ["c1", "c1"]);
+      expect(sent).toEqual([{ docId: DOC_ID, ids: ["c1"] }]);
+      expect(accepted.map((c) => [c.id, c.author])).toEqual([["c1", "Kenny S"]]);
+      expect(fake.text).toBe("hello brave world"); // text unchanged
+      expect(fake.applies).toBe(0);
+    });
+
+    it("accepts nothing if any id is not pending", async () => {
+      const { session, sent } = withAccept();
+      await expect(session.acceptTrackedChanges("main.tex", ["c1", "gone"])).rejects.toThrow(/not pending.*gone/);
+      expect(sent).toEqual([]);
+    });
+
+    it("is a no-op for an empty id list", async () => {
+      const { session, sent } = withAccept();
+      expect(await session.acceptTrackedChanges("main.tex", [])).toEqual([]);
+      expect(sent).toEqual([]);
+    });
+
+    it("lists the whole project's changes when no path is given", async () => {
+      const { session } = withAccept();
+      expect((await session.listTrackedChanges()).map((c) => [c.path, c.id])).toEqual([["main.tex", "c1"]]);
     });
   });
 

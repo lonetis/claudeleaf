@@ -76,6 +76,8 @@ export interface Comment {
 export interface TrackedChange {
   /** Overleaf's change id. */
   id: string;
+  /** Path of the document the change is in. */
+  path: string;
   kind: "insert" | "delete";
   /** The suggested inserted text, or the text suggested for deletion. */
   text: string;

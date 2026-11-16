@@ -304,14 +304,34 @@ export function createServer(): McpServer {
     "overleaf_list_tracked_changes",
     {
       description:
-        "List a document's pending tracked changes (review-mode suggestions) — each with kind " +
-        "(insert: text in the document; delete: text removed but kept as a suggestion), the text, " +
-        "position (offset/line/column), author and time. Edits that would touch one are refused, " +
-        "so check here before editing text a collaborator may have suggested changes to.",
-      inputSchema: { project: z.string(), path: z.string() },
+        "List pending tracked changes (review-mode suggestions) of a document, or of every " +
+        "document in the project when `path` is omitted — each with id, path, kind (insert: text " +
+        "in the document; delete: text removed but kept as a suggestion), the text, position " +
+        "(offset/line/column), author and time. Edits that would touch a co-author's one are " +
+        "refused, so check here before editing text a collaborator may have suggested changes to.",
+      inputSchema: { project: z.string(), path: z.string().optional() },
       annotations: { readOnlyHint: true },
     },
     async ({ project, path }) => result(await getClient().listTrackedChanges(project, path)),
+  );
+
+  server.registerTool(
+    "overleaf_accept_tracked_changes",
+    {
+      description:
+        "Accept pending tracked changes (suggestions) in a document by id, like Accept in " +
+        "Overleaf's review panel: an insertion becomes plain text, a deletion becomes final; the " +
+        "suggestion is gone and cannot be rejected afterwards. Only accept changes the user " +
+        "explicitly told you to accept (e.g. by author, date or id) — accepting a co-author's " +
+        "suggestion is a review decision. Take ids from overleaf_list_tracked_changes; if any id " +
+        "is not pending in the document, nothing is accepted. Returns the accepted changes.",
+      inputSchema: { project: z.string(), path: z.string(), changeIds: z.array(z.string()).min(1) },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    },
+    async ({ project, path, changeIds }) => {
+      const accepted = await getClient().acceptTrackedChanges(project, path, changeIds);
+      return result({ accepted: accepted.length, changes: accepted });
+    },
   );
 
   server.registerTool(

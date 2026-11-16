@@ -73,6 +73,9 @@ function makeSession(text: string, version = 0, requestTimeout = 1): { session: 
   fake.addHandler((name, args) => (session as unknown as { onEvent(n: string, a: unknown[]): void }).onEvent(name, args));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (session as any).entities = [{ id: DOC_ID, name: "main.tex", path: "main.tex", type: "doc", folderId: "root" }];
+  // No network: the signed-in user is unknown unless a test says otherwise.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (session as any).rest = { currentUserId: async () => null };
   return { session, fake };
 }
 
@@ -518,6 +521,65 @@ describe("tracked changes: listing and the overwrite guard", () => {
     const { session, fake } = withSuggestion();
     await session.replaceText("main.tex", "brave", "bold", 0, { overwriteTrackedChanges: true });
     expect(fake.text).toBe("hello bold world");
+  });
+
+  describe("own suggestions vs a co-author's", () => {
+    // "hello brave new world": the signed-in user's insertion "brave " at [6, 12) and Kenny's
+    // insertion "new " at [12, 16).
+    function withMine(selfId: string | null = "u-owner") {
+      const m = makeSession("hello brave new world");
+      m.fake.ranges = {
+        changes: [
+          { id: "own", op: { p: 6, i: "brave " }, metadata: { user_id: "u-owner" } },
+          { id: "theirs", op: { p: 12, i: "new " }, metadata: { user_id: "u-kenny" } },
+        ],
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const s = m.session as any;
+      s.project = {
+        owner: { _id: "u-owner", first_name: "Ada" },
+        members: [{ _id: "u-kenny", first_name: "Kenny", last_name: "S" }],
+      };
+      s.rest = { currentUserId: async () => selfId };
+      return m;
+    }
+
+    it("allows an edit that touches only one's own suggestion", async () => {
+      const { session, fake } = withMine();
+      await session.insertAt("main.tex", 8, "x", { trackChanges: true });
+      expect(fake.text).toBe("hello brxave new world");
+      await session.replaceText("main.tex", "brxave", "bold");
+      expect(fake.text).toBe("hello bold new world");
+    });
+
+    it("refuses an edit that touches a co-author's suggestion", async () => {
+      const { session, fake } = withMine();
+      const err = await session.insertAt("main.tex", 14, "x", { trackChanges: true }).catch((e) => e);
+      expect(err).toBeInstanceOf(TrackedChangeConflictError);
+      expect(err.message).toMatch(/insertion by Kenny S/);
+      expect(fake.applies).toBe(0);
+    });
+
+    it("refuses a mixed edit and names only the co-author's suggestion", async () => {
+      const { session, fake } = withMine();
+      const err = await session.deleteRange("main.tex", 8, 14).catch((e) => e);
+      expect(err).toBeInstanceOf(TrackedChangeConflictError);
+      expect(err.changes.map((c: { id: string }) => c.id)).toEqual(["theirs"]);
+      expect(err.message).not.toMatch(/Ada/);
+      expect(fake.applies).toBe(0);
+    });
+
+    it("protects every suggestion when the signed-in user is unknown", async () => {
+      const { session, fake } = withMine(null);
+      await expect(session.insertAt("main.tex", 8, "x")).rejects.toBeInstanceOf(TrackedChangeConflictError);
+      expect(fake.applies).toBe(0);
+    });
+
+    it("overwriteTrackedChanges lets a co-author edit through", async () => {
+      const { session, fake } = withMine();
+      await session.deleteRange("main.tex", 8, 14, { overwriteTrackedChanges: true });
+      expect(fake.text).toBe("hello brw world");
+    });
   });
 
   it("does not block comments on suggested text", async () => {

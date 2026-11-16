@@ -91,8 +91,8 @@ project is an id or name. line/column are 0-based; start/end are character offse
 The editing commands (append, insert, replace, set) accept --track-changes to
 submit the edit as a review-mode suggestion instead of a direct edit (requires
 track changes on the project, a premium feature). They refuse, sending nothing,
-an edit that would touch a pending tracked change; --overwrite-tracked-changes
-skips that check.`;
+an edit that would touch another author's pending tracked change (your own
+suggestions stay editable); --overwrite-tracked-changes skips that check.`;
 
 async function run(argv: string[]): Promise<number> {
   const command = argv[0];

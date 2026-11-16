@@ -11,6 +11,7 @@ import type { ProjectSummary } from "./types.js";
 import { sleep } from "./util.js";
 
 const CSRF_RE = /name="ol-csrfToken"\s+content="([^"]+)"/;
+const USER_ID_RE = /name="ol-user_id"\s+content="([^"]+)"/;
 
 /**
  * Resolve a server-relative `path` against the configured Overleaf instance and refuse any
@@ -29,6 +30,7 @@ export function sameOriginUrl(baseUrl: string, path: string): string {
   }
   return url.toString();
 }
+
 type EntityType = "doc" | "file" | "folder";
 
 /** List every project the signed-in account can access (via the dashboard JSON API). */
@@ -81,6 +83,7 @@ interface RawProject {
 
 export class RestClient {
   private csrf: string | null = null;
+  private userId: string | null = null;
 
   constructor(
     private readonly config: Config,
@@ -100,13 +103,24 @@ export class RestClient {
       headers: { Cookie: ch, "User-Agent": this.config.userAgent },
       signal: AbortSignal.timeout(this.config.requestTimeout * 1000),
     });
-    const m = CSRF_RE.exec(await res.text());
+    const html = await res.text();
+    const m = CSRF_RE.exec(html);
+    this.userId = USER_ID_RE.exec(html)?.[1] ?? this.userId;
     if (!m) {
       if (!forceRefresh) return this.ensureCsrf(true);
       throw new ClaudeleafError("could not obtain CSRF token (session may be invalid)");
     }
     this.csrf = m[1];
     return this.csrf;
+  }
+
+  /**
+   * The signed-in user's id (`ol-user_id`), read from the same project page as the CSRF
+   * token; null if the page does not carry it.
+   */
+  async currentUserId(): Promise<string | null> {
+    if (!this.userId) await this.ensureCsrf(this.csrf !== null);
+    return this.userId;
   }
 
   private async request(

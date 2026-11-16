@@ -167,10 +167,17 @@ pending suggestions, since its break-and-restore would drop them. `submit` re-jo
 the doc before every attempt unless `EditOptions.overwriteTrackedChanges` is set (the mirror
 tracks text, not ranges, so earlier ranges may be stale) and throws `TrackedChangeConflictError`
 (with `.changes`) before sending. Why: an edit inside a co-author's pending suggestion silently
-rewrites or removes it, and Overleaf mails its author that the suggestion was rejected.
-`listTrackedChanges` names authors from the project's owner/members. The MCP exposes
-`overleaf_list_tracked_changes` but deliberately no override, so an agent asks a human instead;
-the CLI has `changes` and `--overwrite-tracked-changes`.
+rewrites or removes it, and Overleaf mails its author that the suggestion was rejected. Only
+**other authors'** changes are protected (`foreignChanges`): the signed-in user's id is scraped
+from the project page's `ol-user_id` (`RestClient.currentUserId`, alongside the CSRF token; it is
+not in `joinProjectResponse`) and changes with that `user_id` pass. Verified live: a tracked
+insert inside one's own tracked insertion extends it (same id), a tracked delete inside it just
+shrinks it (no deletion change), an untracked insert splits it in two. A change without an
+author, or every change when the user id is unknown, stays protected. `listTrackedChanges` names
+authors from the project's owner/members. The MCP exposes `overleaf_list_tracked_changes` and an
+`overwriteTrackedChanges` param on the seven text-writing tools, described as only for when the
+user explicitly said to override a co-author's suggestion; the CLI has `changes` and
+`--overwrite-tracked-changes`.
 
 **Hash.** Overleaf's optional ShareJS hash is git-blob SHA-1 (`ot.gitBlobHash`). We **omit
 it**: the server treats it as optional, and a mismatch is fatal (`otUpdateError "Invalid

@@ -177,7 +177,19 @@ author, or every change when the user id is unknown, stays protected. `listTrack
 authors from the project's owner/members. The MCP exposes `overleaf_list_tracked_changes` and an
 `overwriteTrackedChanges` param on the seven text-writing tools, described as only for when the
 user explicitly said to override a co-author's suggestion; the CLI has `changes` and
-`--overwrite-tracked-changes`.
+`--overwrite-tracked-changes`. Without a path, `listTrackedChanges` walks every doc (each
+change carries its `path`).
+
+**Accepting tracked changes** is HTTP, not realtime (verified live):
+`POST /project/:id/doc/:docId/changes/accept {change_ids:[...]}` (cookie + CSRF) → 204. The text
+and version do not change (an accepted insertion stays, an accepted deletion is already gone);
+only the ranges drop the changes, and the server broadcasts `accept-changes [docId, ids]` to
+the project, which the mirror can ignore. `acceptTrackedChanges(path, ids)` re-joins first and
+accepts nothing if any id is not pending in that doc. MCP: `overleaf_accept_tracked_changes`
+(destructive: an accepted suggestion can no longer be rejected; its description limits it to
+changes the user explicitly said to accept). CLI: `accept <project> <path> <id>... | --all
+[--before ISO-DATE]`. Rejecting is not implemented (the editor does it client-side by
+applying the inverse op).
 
 **Hash.** Overleaf's optional ShareJS hash is git-blob SHA-1 (`ot.gitBlobHash`). We **omit
 it**: the server treats it as optional, and a mismatch is fatal (`otUpdateError "Invalid
@@ -268,8 +280,9 @@ state; instead:
   also `idempotentHint: false`, since each call kicks off a fresh build. The writes set
   `destructiveHint` explicitly (it would otherwise default to `true` whenever `readOnlyHint`
   is `false`): `true` for overwrite/remove tools (`replace_text`, `replace_range`,
-  `delete_range`, `delete_lines`, `set_document`, `delete_document`, and `upload_file` — which
-  replaces a same-named file), `false` for the purely additive ones (`insert_text`,
+  `delete_range`, `delete_lines`, `set_document`, `delete_document`, `accept_tracked_changes`
+  — an accepted suggestion can no longer be rejected — and `upload_file`, which replaces a
+  same-named file), `false` for the purely additive ones (`insert_text`,
   `append_text`, `create_document`, `add_comment` — which only annotates, leaving the text
   unchanged — and `rename_document`, which changes a name, losing no content). The seven write
   tools that change document text also take an optional `trackChanges` to submit as a
@@ -295,7 +308,7 @@ No configuration is required. Overrides (mainly for self-hosted / tuning):
 `project(idOrName)` → `ProjectSession`. All document methods take a `project` (id or name) as
 the first argument and are `async`: `projectInfo`, `listDocuments`, `readDocument`, `getLines`,
 `documentVersion`, `search`, `insertAt`, `insert`, `append`, `deleteRange`, `replaceRange`,
-`replaceText`, `setText`, `deleteLines`, `setCursor`, `getConnectedUsers`, `listTrackedChanges`, `createDocument`,
+`replaceText`, `setText`, `deleteLines`, `setCursor`, `getConnectedUsers`, `listTrackedChanges`, `acceptTrackedChanges`, `createDocument`,
 `uploadFile`, `createFolder`, `deleteDocument`, `renameDocument`, `resync`, `compile`. `ProjectSession`
 exposes the same methods without the leading `project` argument. Every edit method takes an
 optional trailing `EditOptions` (`{trackChanges?}`) — set `trackChanges` to submit the edit as

@@ -216,8 +216,13 @@ export class OverleafClient {
   }
 
   // -- tracked changes --------------------------------------------------
-  async listTrackedChanges(project: string, path: string): Promise<TrackedChange[]> {
+  /** A document's pending tracked changes, or the whole project's when `path` is omitted. */
+  async listTrackedChanges(project: string, path?: string): Promise<TrackedChange[]> {
     return (await this.project(project)).listTrackedChanges(path);
+  }
+
+  async acceptTrackedChanges(project: string, path: string, changeIds: string[]): Promise<TrackedChange[]> {
+    return (await this.project(project)).acceptTrackedChanges(path, changeIds);
   }
 
   // -- presence & structure ---------------------------------------------

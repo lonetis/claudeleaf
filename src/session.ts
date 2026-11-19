@@ -384,7 +384,13 @@ export class ProjectSession {
    * List a document's pending tracked changes (review-mode suggestions), in document order,
    * with their author where the author is a member of the project. Read-only.
    */
-  async listTrackedChanges(path: string): Promise<TrackedChange[]> {
+  async listTrackedChanges(path?: string): Promise<TrackedChange[]> {
+    if (path === undefined) {
+      // Every document in tree order, one join at a time.
+      const all: TrackedChange[] = [];
+      for (const e of this.entities.filter((x) => x.type === "doc")) all.push(...(await this.listTrackedChanges(e.path)));
+      return all;
+    }
     const doc = await this.openDoc(path);
     // Through joinDoc for the same reasons as listComments: a failed join raises, and the
     // offsets are mapped against the text of this same join.
@@ -394,12 +400,38 @@ export class ProjectSession {
       .map((c) => this.describeChange(doc, c));
   }
 
+  /**
+   * Accept pending tracked changes of a document by id (from {@link listTrackedChanges}), as
+   * the review panel's Accept does: an insertion becomes plain text, a deletion is final. The
+   * text does not change. Ids are checked against freshly read ranges first; if any is not
+   * pending in this document, nothing is accepted. Returns the accepted changes.
+   */
+  async acceptTrackedChanges(path: string, changeIds: string[]): Promise<TrackedChange[]> {
+    const doc = await this.openDoc(path);
+    const wanted = [...new Set(changeIds)];
+    if (wanted.length === 0) return [];
+    return this.mutex(doc.id).runExclusive(async () => {
+      const ranges = await this.joinDoc(doc);
+      const pending = new Map(parseChanges(ranges.changes).map((c) => [c.id, c]));
+      const missing = wanted.filter((id) => !pending.has(id));
+      if (missing.length > 0) {
+        throw new ClaudeleafError(
+          `not accepted: ${missing.length} change id(s) are not pending in ${doc.path} ` +
+            `(${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ", ..." : ""}); nothing was accepted`,
+        );
+      }
+      await this.rest.acceptChanges(doc.id, wanted);
+      return wanted.map((id) => this.describeChange(doc, pending.get(id)!));
+    });
+  }
+
   private describeChange(doc: Document, c: ParsedChange): TrackedChange {
     const [line, column] = doc.offsetToRowcol(c.offset);
     const user = c.userId ? this.projectUser(c.userId) : undefined;
     const name = user ? [user.first_name, user.last_name].filter(Boolean).join(" ") : "";
     return {
       id: c.id,
+      path: doc.path,
       kind: c.kind,
       text: c.text,
       offset: c.offset,

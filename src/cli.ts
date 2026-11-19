@@ -12,7 +12,7 @@ import { OverleafClient } from "./client.js";
 import { Config } from "./config.js";
 import { ClaudeleafError } from "./errors.js";
 
-const VALUE_FLAGS = new Set(["count", "folder", "name"]);
+const VALUE_FLAGS = new Set(["count", "folder", "name", "before"]);
 
 function parseArgs(args: string[]): { positionals: string[]; flags: Record<string, string | boolean> } {
   const positionals: string[] = [];
@@ -80,7 +80,9 @@ Usage: claudeleaf <command> [args]
   comment <project> <path> <start> <end> [message|-]
                                           comment on the [start,end) span
   comments <project> <path>               list a document's comments
-  changes <project> <path>                list a document's pending tracked changes
+  changes <project> [path]                list pending tracked changes (whole project if no path)
+  accept <project> <path> <id>... | --all [--before ISO-DATE]
+                                          accept tracked changes (by id, or all / all before a date)
   upload <project> <localFile> [--folder DIR] [--name NAME]
                                           upload an image/PDF for \includegraphics
   compile <project> [--draft] [--stop-on-first-error] [--log] [--warnings]
@@ -246,8 +248,33 @@ async function run(argv: string[]): Promise<number> {
         for (const c of changes) {
           const who = c.author ?? c.email ?? c.userId ?? "?";
           const when = c.timestamp ? ` ${c.timestamp}` : "";
-          console.log(`${c.line}:${c.column}  ${c.kind.padEnd(6)}  ${who}${when}  ${JSON.stringify(c.text)}`);
+          const where = positionals[1] === undefined ? `${c.path} ` : "";
+          console.log(`${c.id}  ${where}${c.line}:${c.column}  ${c.kind.padEnd(6)}  ${who}${when}  ${JSON.stringify(c.text)}`);
         }
+        return 0;
+      }
+      case "accept": {
+        const path = positionals[1];
+        if (!path) {
+          console.error("error: 'accept' needs a document path");
+          return 1;
+        }
+        let ids = positionals.slice(2);
+        const before = typeof flags.before === "string" ? Date.parse(flags.before) : undefined;
+        if (before !== undefined && Number.isNaN(before)) {
+          console.error(`error: --before is not a date: ${flags.before}`);
+          return 1;
+        }
+        if (ids.length === 0 && (boolFlag(flags.all) || before !== undefined)) {
+          ids = (await client.listTrackedChanges(project, path))
+            .filter((c) => before === undefined || (c.timestamp !== undefined && Date.parse(c.timestamp) < before))
+            .map((c) => c.id);
+        } else if (ids.length === 0) {
+          console.error("error: 'accept' needs change ids, --all or --before");
+          return 1;
+        }
+        const accepted = await client.acceptTrackedChanges(project, path, ids);
+        console.log(`Accepted ${accepted.length} tracked change(s) in ${path}.`);
         return 0;
       }
       case "upload": {

@@ -36,8 +36,21 @@ const trackChanges = z
     "Submit as a tracked change (review-mode suggestion) instead of a direct edit, for a " +
       "human to accept or reject. Inserts become tracked insertions; deletions keep the removed " +
       "text struck through. Requires track changes to be available on the project (premium). " +
-      "Every text edit is refused, with nothing sent, if it would touch a pending suggestion " +
-      "(see overleaf_list_tracked_changes); then ask the human instead of working around it.",
+      "Every text edit is refused, with nothing sent, if it would touch a co-author's pending " +
+      "suggestion (see overleaf_list_tracked_changes); then ask the human instead of working " +
+      "around it. The signed-in user's own suggestions are not protected: editing inside one " +
+      "extends or shrinks it, as in the Overleaf editor.",
+  );
+
+/** Shared schema fragment: let the edit touch a co-author's pending suggestion. */
+const overwriteTrackedChanges = z
+  .boolean()
+  .optional()
+  .describe(
+    "Let this edit change text inside a co-author's pending tracked change (suggestion), which " +
+      "silently rewrites or removes it (Overleaf tells the author it was rejected). Only set " +
+      "this when the user explicitly said to override that co-author's suggestion; never to " +
+      "get past a refused edit on your own. Not needed for the user's own suggestions.",
   );
 
 export function createServer(): McpServer {
@@ -98,11 +111,11 @@ export function createServer(): McpServer {
     "overleaf_insert_text",
     {
       description: "Insert text at a 0-based line and column. Collaborators see the edit live.",
-      inputSchema: { project: z.string(), path: z.string(), line: z.number().int(), column: z.number().int(), text: z.string(), trackChanges },
+      inputSchema: { project: z.string(), path: z.string(), line: z.number().int(), column: z.number().int(), text: z.string(), trackChanges, overwriteTrackedChanges },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ project, path, line, column, text, trackChanges }) => {
-      const doc = await getClient().insert(project, path, line, column, text, { trackChanges });
+    async ({ project, path, line, column, text, trackChanges, overwriteTrackedChanges }) => {
+      const doc = await getClient().insert(project, path, line, column, text, { trackChanges, overwriteTrackedChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );
@@ -111,11 +124,11 @@ export function createServer(): McpServer {
     "overleaf_append_text",
     {
       description: "Append text to the end of a document (a newline is added if needed).",
-      inputSchema: { project: z.string(), path: z.string(), text: z.string(), trackChanges },
+      inputSchema: { project: z.string(), path: z.string(), text: z.string(), trackChanges, overwriteTrackedChanges },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ project, path, text, trackChanges }) => {
-      const doc = await getClient().append(project, path, text, { trackChanges });
+    async ({ project, path, text, trackChanges, overwriteTrackedChanges }) => {
+      const doc = await getClient().append(project, path, text, { trackChanges, overwriteTrackedChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );
@@ -124,11 +137,11 @@ export function createServer(): McpServer {
     "overleaf_replace_text",
     {
       description: "Replace literal occurrences of `old` with `new`. count=0 replaces all.",
-      inputSchema: { project: z.string(), path: z.string(), old: z.string(), new: z.string(), count: z.number().int().optional(), trackChanges },
+      inputSchema: { project: z.string(), path: z.string(), old: z.string(), new: z.string(), count: z.number().int().optional(), trackChanges, overwriteTrackedChanges },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ project, path, old, new: newStr, count, trackChanges }) => {
-      const n = await getClient().replaceText(project, path, old, newStr, count ?? 0, { trackChanges });
+    async ({ project, path, old, new: newStr, count, trackChanges, overwriteTrackedChanges }) => {
+      const n = await getClient().replaceText(project, path, old, newStr, count ?? 0, { trackChanges, overwriteTrackedChanges });
       return result({ ok: true, path, replaced: n });
     },
   );
@@ -137,11 +150,11 @@ export function createServer(): McpServer {
     "overleaf_replace_range",
     {
       description: "Replace the text between character offsets [start, end) with `text`.",
-      inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int(), text: z.string(), trackChanges },
+      inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int(), text: z.string(), trackChanges, overwriteTrackedChanges },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ project, path, start, end, text, trackChanges }) => {
-      const doc = await getClient().replaceRange(project, path, start, end, text, { trackChanges });
+    async ({ project, path, start, end, text, trackChanges, overwriteTrackedChanges }) => {
+      const doc = await getClient().replaceRange(project, path, start, end, text, { trackChanges, overwriteTrackedChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );
@@ -150,11 +163,11 @@ export function createServer(): McpServer {
     "overleaf_delete_range",
     {
       description: "Delete the text between character offsets [start, end).",
-      inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int(), trackChanges },
+      inputSchema: { project: z.string(), path: z.string(), start: z.number().int(), end: z.number().int(), trackChanges, overwriteTrackedChanges },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ project, path, start, end, trackChanges }) => {
-      const doc = await getClient().deleteRange(project, path, start, end, { trackChanges });
+    async ({ project, path, start, end, trackChanges, overwriteTrackedChanges }) => {
+      const doc = await getClient().deleteRange(project, path, start, end, { trackChanges, overwriteTrackedChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );
@@ -163,11 +176,11 @@ export function createServer(): McpServer {
     "overleaf_delete_lines",
     {
       description: "Delete 0-based lines startLine..endLine (inclusive).",
-      inputSchema: { project: z.string(), path: z.string(), startLine: z.number().int(), endLine: z.number().int(), trackChanges },
+      inputSchema: { project: z.string(), path: z.string(), startLine: z.number().int(), endLine: z.number().int(), trackChanges, overwriteTrackedChanges },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ project, path, startLine, endLine, trackChanges }) => {
-      const doc = await getClient().deleteLines(project, path, startLine, endLine, { trackChanges });
+    async ({ project, path, startLine, endLine, trackChanges, overwriteTrackedChanges }) => {
+      const doc = await getClient().deleteLines(project, path, startLine, endLine, { trackChanges, overwriteTrackedChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );
@@ -176,11 +189,11 @@ export function createServer(): McpServer {
     "overleaf_set_document",
     {
       description: "Replace a document's entire contents with `content` (sent as a minimal diff).",
-      inputSchema: { project: z.string(), path: z.string(), content: z.string(), trackChanges },
+      inputSchema: { project: z.string(), path: z.string(), content: z.string(), trackChanges, overwriteTrackedChanges },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ project, path, content, trackChanges }) => {
-      const doc = await getClient().setText(project, path, content, { trackChanges });
+    async ({ project, path, content, trackChanges, overwriteTrackedChanges }) => {
+      const doc = await getClient().setText(project, path, content, { trackChanges, overwriteTrackedChanges });
       return result({ ok: true, path: doc.path, version: doc.version, length: doc.length });
     },
   );

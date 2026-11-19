@@ -46,7 +46,7 @@ import type {
   ProjectInfo,
   TrackedChange,
 } from "./types.js";
-import { findConflicts, parseChanges, type ParsedChange } from "./trackedChanges.js";
+import { findConflicts, foreignChanges, parseChanges, type ParsedChange } from "./trackedChanges.js";
 import { Deferred, Mutex, sleep } from "./util.js";
 
 const TREE_EVENTS = new Set([
@@ -72,11 +72,13 @@ type ConfirmResult = { status: "confirmed"; version?: number } | { status: "drop
 export interface EditOptions {
   trackChanges?: boolean;
   /**
-   * Allow the edit to change text inside or at the edge of a pending tracked change. By
-   * default an edit that would touch someone's suggestion is refused with a
+   * Allow the edit to change text inside a co-author's pending tracked change. By default an
+   * edit that would touch someone else's suggestion is refused with a
    * {@link TrackedChangeConflictError} before anything is sent, because it would silently
    * alter or remove that suggestion (Overleaf reports a removed insertion to its author as
-   * "rejected"). The check re-joins the document before each edit to read fresh ranges.
+   * "rejected"). Suggestions by the signed-in user are never protected: editing inside one's
+   * own suggestion extends or shrinks it, as in the editor. The check re-joins the document
+   * before each edit to read fresh ranges.
    */
   overwriteTrackedChanges?: boolean;
 }
@@ -410,6 +412,15 @@ export class ProjectSession {
     };
   }
 
+  /** The signed-in user's id, or null if it cannot be determined (then nothing counts as own). */
+  private async ownUserId(): Promise<string | null> {
+    try {
+      return await this.rest.currentUserId();
+    } catch {
+      return null;
+    }
+  }
+
   /** The owner or member with this user id, from the joinProject payload. */
   private projectUser(userId: string): Record<string, any> | undefined {
     const owner = this.project.owner as Record<string, any> | undefined;
@@ -724,7 +735,10 @@ export class ProjectSession {
         const { op, cursor } = build(doc);
         if (op.length === 0) return doc;
         if (ranges) {
-          const touched = findConflicts(op, parseChanges(ranges.changes));
+          let touched = findConflicts(op, parseChanges(ranges.changes));
+          // Only a co-author's suggestion is protected; one's own stays editable. The user id
+          // is looked up only when something is touched (an unknown id protects everything).
+          if (touched.length > 0) touched = foreignChanges(touched, await this.ownUserId());
           if (touched.length > 0) {
             const described = touched.map((c) => this.describeChange(doc, c));
             throw new TrackedChangeConflictError(conflictMessage(doc.path, described), described);
@@ -958,9 +972,9 @@ function conflictMessage(path: string, changes: TrackedChange[]): string {
   });
   const more = changes.length > 3 ? ` and ${changes.length - 3} more` : "";
   return (
-    `edit to ${path} not sent: it would touch ${changes.length} pending tracked change(s) - ` +
+    `edit to ${path} not sent: it would touch ${changes.length} pending tracked change(s) by another author - ` +
     `${shown.join("; ")}${more}. Ask the author to accept or reject the suggestion first ` +
-    "(or retry with overwriteTrackedChanges)."
+    "(or, only if the user explicitly said to override it, retry with overwriteTrackedChanges)."
   );
 }
 

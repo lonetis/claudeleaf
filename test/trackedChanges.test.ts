@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import * as ot from "../src/ot.js";
-import { findConflicts, parseChanges, type ParsedChange } from "../src/trackedChanges.js";
+import { findConflicts, foreignChanges, parseChanges, type ParsedChange } from "../src/trackedChanges.js";
 
 // "hello brave world": a pending insertion "brave " at [6, 12), a pending deletion anchored at 12.
 const ins: ParsedChange = { id: "ins", kind: "insert", text: "brave ", offset: 6 };
@@ -62,5 +62,18 @@ describe("findConflicts", () => {
   });
   it("reports each change once, in input order", () => {
     expect(ids([ot.del(4, "o brave w")])).toEqual(["ins", "del"]);
+  });
+});
+
+describe("foreignChanges", () => {
+  const mk = (id: string, userId?: string): ParsedChange => ({ id, kind: "insert", text: "x", offset: 0, userId });
+  const changes = [mk("a", "me"), mk("b", "kenny"), mk("c")];
+
+  it("drops the signed-in user's own changes", () => {
+    expect(foreignChanges(changes, "me").map((c) => c.id)).toEqual(["b", "c"]);
+  });
+
+  it("keeps everything when the user is unknown", () => {
+    expect(foreignChanges(changes, null).map((c) => c.id)).toEqual(["a", "b", "c"]);
   });
 });

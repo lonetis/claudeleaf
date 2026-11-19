@@ -11,7 +11,8 @@
  * An edit that changes text inside or at the edge of someone's pending suggestion changes or
  * removes that suggestion without the author seeing it as a decision of theirs (Overleaf
  * reports a removed insertion to its author as "rejected"). {@link findConflicts} finds the
- * suggestions an op would touch, so the edit can be refused instead.
+ * suggestions an op would touch, and {@link foreignChanges} keeps those of other authors, so
+ * an edit into a co-author's suggestion can be refused while one's own stay editable.
  *
  * Pure / side-effect free.
  */
@@ -127,6 +128,17 @@ export function findConflicts(op: ot.Op, changes: ParsedChange[]): ParsedChange[
     }
   }
   return changes.filter((c) => hit.has(c.id));
+}
+
+/**
+ * The changes not authored by `selfId` - those an edit by `selfId` may not touch. Editing
+ * inside one's own pending suggestion is what the Overleaf editor does when you keep typing
+ * in it (verified live: a tracked insert inside one's own tracked insertion extends it under
+ * the same id, a tracked delete inside it just shrinks it), so it needs no protection. A
+ * change without an author, or any change when `selfId` is unknown, counts as foreign.
+ */
+export function foreignChanges(changes: ParsedChange[], selfId: string | null | undefined): ParsedChange[] {
+  return changes.filter((c) => !selfId || c.userId !== selfId);
 }
 
 function shiftForDelete(pos: number, a: number, b: number): number {

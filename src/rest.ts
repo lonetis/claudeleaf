@@ -237,6 +237,16 @@ export class RestClient {
   }
 
   /**
+   * Resolve or reopen a comment thread, as the review panel does. The routes are scoped to the
+   * doc that anchors the comment; the older project-level `/thread/:id/resolve` 404s on
+   * overleaf.com.
+   */
+  async setThreadResolved(docId: string, threadId: string, resolved: boolean): Promise<void> {
+    const action = resolved ? "resolve" : "reopen";
+    await this.request("POST", `/project/${this.projectId}/doc/${docId}/thread/${threadId}/${action}`, {});
+  }
+
+  /**
    * Accept pending tracked changes of a doc (what the review panel's Accept does). The text is
    * unchanged (an accepted insertion stays, an accepted deletion is already gone); only the
    * ranges lose these changes, and the server broadcasts `accept-changes` to the project.

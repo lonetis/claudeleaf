@@ -215,6 +215,14 @@ export class OverleafClient {
     return (await this.project(project)).listComments(path);
   }
 
+  async resolveComments(project: string, path: string, threadIds: string[]): Promise<Comment[]> {
+    return (await this.project(project)).resolveComments(path, threadIds);
+  }
+
+  async reopenComments(project: string, path: string, threadIds: string[]): Promise<Comment[]> {
+    return (await this.project(project)).reopenComments(path, threadIds);
+  }
+
   // -- tracked changes --------------------------------------------------
   /** A document's pending tracked changes, or the whole project's when `path` is omitted. */
   async listTrackedChanges(project: string, path?: string): Promise<TrackedChange[]> {

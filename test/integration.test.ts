@@ -141,6 +141,17 @@ describe.skipIf(!testProject)("integration", () => {
     expect((await client.readDocument(project, SCRATCH)).startsWith("OWN [more] SUGGESTION Line zero")).toBe(true);
   });
 
+  it("resolves and reopens a comment", async () => {
+    const c = await client.addComment(project, SCRATCH, 0, 4, "resolve me");
+    const state = async () => (await client.listComments(project, SCRATCH)).find((x) => x.threadId === c.threadId)?.resolved;
+    expect(await state()).toBe(false);
+    expect((await client.resolveComments(project, SCRATCH, [c.threadId]))[0].resolved).toBe(true);
+    expect(await state()).toBe(true);
+    expect((await client.reopenComments(project, SCRATCH, [c.threadId]))[0].resolved).toBe(false);
+    expect(await state()).toBe(false);
+    await client.resolveComments(project, SCRATCH, [c.threadId]); // leave the scratch doc tidy
+  });
+
   it("version increments", async () => {
     const v0 = await client.documentVersion(project, SCRATCH);
     await client.append(project, SCRATCH, "x");

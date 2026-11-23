@@ -147,9 +147,16 @@ on first message); `GET /project/:id/threads` returns every thread keyed by id
 the server fills author/ts. Read comments back by merging a doc's `ranges.comments` (anchors:
 `op.{p,c,t}`) with the threads API (messages). Note the ranges `c`/change text is the realtime
 **byte-view** (decode with `ot.decodeWireText`), but REST message `content` is already real
-UTF-8 (do not decode). The resolve/reopen/delete thread routes return 404 on overleaf.com, so
-Claudeleaf ships only create + list. Exposed as `addComment`/`listComments` (SDK) and
-`overleaf_add_comment`/`overleaf_list_comments` (MCP).
+UTF-8 (do not decode). **Resolving/reopening** is HTTP and doc-scoped (verified live):
+`POST /project/:id/doc/:docId/thread/:threadId/resolve` or `.../reopen` (cookie + CSRF, empty
+body) → 204, and `GET /threads` then reports `resolved: true/false`. The older project-level
+`/project/:id/thread/:threadId/resolve` 404s on overleaf.com. `resolveComments`/`reopenComments`
+read the doc's comments first and change nothing if any id is not anchored there; threads
+already in the wanted state are skipped; one request per thread, so a failure part-way names
+the threads already changed. Deleting a thread is not implemented. Exposed as
+`addComment`/`listComments`/`resolveComments`/`reopenComments` (SDK),
+`overleaf_add_comment`/`overleaf_list_comments`/`overleaf_resolve_comments`/
+`overleaf_reopen_comments` (MCP) and `comment`/`comments`/`resolve`/`reopen` (CLI).
 
 **Reading tracked changes and the overwrite guard.** `ranges.changes` entries are
 `{id, op:{p,i}|{p,d}, metadata:{user_id,ts}}`: a tracked insertion is snapshot text at
@@ -284,7 +291,7 @@ state; instead:
   — an accepted suggestion can no longer be rejected — and `upload_file`, which replaces a
   same-named file), `false` for the purely additive ones (`insert_text`,
   `append_text`, `create_document`, `add_comment` — which only annotates, leaving the text
-  unchanged — and `rename_document`, which changes a name, losing no content). The seven write
+  unchanged — `resolve_comments`/`reopen_comments` (reversible, also `idempotentHint: true`) and `rename_document`, which changes a name, losing no content). The seven write
   tools that change document text also take an optional `trackChanges` to submit as a
   review-mode suggestion.
 
@@ -308,7 +315,7 @@ No configuration is required. Overrides (mainly for self-hosted / tuning):
 `project(idOrName)` → `ProjectSession`. All document methods take a `project` (id or name) as
 the first argument and are `async`: `projectInfo`, `listDocuments`, `readDocument`, `getLines`,
 `documentVersion`, `search`, `insertAt`, `insert`, `append`, `deleteRange`, `replaceRange`,
-`replaceText`, `setText`, `deleteLines`, `setCursor`, `getConnectedUsers`, `listTrackedChanges`, `acceptTrackedChanges`, `createDocument`,
+`replaceText`, `setText`, `deleteLines`, `setCursor`, `getConnectedUsers`, `listTrackedChanges`, `acceptTrackedChanges`, `resolveComments`, `reopenComments`, `createDocument`,
 `uploadFile`, `createFolder`, `deleteDocument`, `renameDocument`, `resync`, `compile`. `ProjectSession`
 exposes the same methods without the leading `project` argument. Every edit method takes an
 optional trailing `EditOptions` (`{trackChanges?}`) — set `trackChanges` to submit the edit as

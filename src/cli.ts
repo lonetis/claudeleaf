@@ -79,7 +79,9 @@ Usage: claudeleaf <command> [args]
   search <project> <path> <query>         find text
   comment <project> <path> <start> <end> [message|-]
                                           comment on the [start,end) span
-  comments <project> <path>               list a document's comments
+  comments <project> <path>               list a document's comments (with thread ids)
+  resolve <project> <path> <threadId>...  resolve comment threads
+  reopen <project> <path> <threadId>...   reopen resolved comment threads
   changes <project> [path]                list pending tracked changes (whole project if no path)
   accept <project> <path> <id>... | --all [--before ISO-DATE]
                                           accept tracked changes (by id, or all / all before a date)
@@ -234,9 +236,24 @@ async function run(argv: string[]): Promise<number> {
         }
         for (const c of comments) {
           const state = c.resolved ? " [resolved]" : "";
-          console.log(`${c.line}:${c.column}  ${JSON.stringify(c.text)}${state}`);
+          console.log(`${c.threadId}  ${c.line}:${c.column}  ${JSON.stringify(c.text)}${state}`);
           for (const m of c.messages) console.log(`    ${m.author ?? "?"}: ${m.content}`);
         }
+        return 0;
+      }
+      case "resolve":
+      case "reopen": {
+        const path = positionals[1];
+        const ids = positionals.slice(2);
+        if (!path || ids.length === 0) {
+          console.error(`error: '${command}' needs a document path and at least one thread id`);
+          return 1;
+        }
+        const done =
+          command === "resolve"
+            ? await client.resolveComments(project, path, ids)
+            : await client.reopenComments(project, path, ids);
+        console.log(`${command === "resolve" ? "Resolved" : "Reopened"} ${done.length} comment thread(s) in ${path}.`);
         return 0;
       }
       case "changes": {

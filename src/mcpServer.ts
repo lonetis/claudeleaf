@@ -301,6 +301,41 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
+    "overleaf_resolve_comments",
+    {
+      description:
+        "Resolve comment threads in a document by thread id, like Resolve in Overleaf's review " +
+        "panel: the comment leaves the open list but keeps its messages and can be reopened with " +
+        "overleaf_reopen_comments. Only resolve threads the user asked you to close — resolving a " +
+        "co-author's open question hides it from them. Take thread ids from " +
+        "overleaf_list_comments; if any id is not a comment in the document, nothing is changed. " +
+        "Threads already resolved are left as they are. Returns the affected comments.",
+      inputSchema: { project: z.string(), path: z.string(), threadIds: z.array(z.string()).min(1) },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ project, path, threadIds }) => {
+      const done = await getClient().resolveComments(project, path, threadIds);
+      return result({ resolved: done.length, comments: done });
+    },
+  );
+
+  server.registerTool(
+    "overleaf_reopen_comments",
+    {
+      description:
+        "Reopen resolved comment threads in a document by thread id, undoing " +
+        "overleaf_resolve_comments. If any id is not a comment in the document, nothing is " +
+        "changed. Returns the affected comments.",
+      inputSchema: { project: z.string(), path: z.string(), threadIds: z.array(z.string()).min(1) },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ project, path, threadIds }) => {
+      const done = await getClient().reopenComments(project, path, threadIds);
+      return result({ reopened: done.length, comments: done });
+    },
+  );
+
+  server.registerTool(
     "overleaf_list_tracked_changes",
     {
       description:

@@ -312,6 +312,76 @@ describe("comments", () => {
       },
     ]);
   });
+
+  describe("resolving and reopening", () => {
+    function withThreads(state: Record<string, boolean>) {
+      const { session, fake } = makeSession("hello world again");
+      fake.ranges = {
+        comments: [
+          { id: "t1", op: { p: 0, c: "hello", t: "t1" } },
+          { id: "t2", op: { p: 6, c: "world", t: "t2" } },
+        ],
+      };
+      const sent: { docId: string; threadId: string; resolved: boolean }[] = [];
+      let failOn: string | null = null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (session as any).rest = {
+        getThreads: async () =>
+          Object.fromEntries(Object.entries(state).map(([id, resolved]) => [id, { messages: [], resolved }])),
+        setThreadResolved: async (docId: string, threadId: string, resolved: boolean) => {
+          if (threadId === failOn) throw new Error("500 boom");
+          sent.push({ docId, threadId, resolved });
+          state[threadId] = resolved;
+        },
+      };
+      return { session, fake, sent, failOn: (id: string) => void (failOn = id) };
+    }
+
+    it("resolves open threads by id and returns them resolved", async () => {
+      const { session, fake, sent } = withThreads({ t1: false, t2: false });
+      const done = await session.resolveComments("main.tex", ["t1", "t1"]);
+      expect(sent).toEqual([{ docId: DOC_ID, threadId: "t1", resolved: true }]);
+      expect(done.map((c) => [c.threadId, c.text, c.resolved])).toEqual([["t1", "hello", true]]);
+      expect(fake.applies).toBe(0); // no op on the document
+    });
+
+    it("reopens resolved threads", async () => {
+      const { session, sent } = withThreads({ t1: true, t2: false });
+      const done = await session.reopenComments("main.tex", ["t1"]);
+      expect(sent).toEqual([{ docId: DOC_ID, threadId: "t1", resolved: false }]);
+      expect(done[0].resolved).toBe(false);
+    });
+
+    it("leaves threads already in the wanted state alone", async () => {
+      const { session, sent } = withThreads({ t1: true, t2: false });
+      const done = await session.resolveComments("main.tex", ["t1", "t2"]);
+      expect(sent.map((s) => s.threadId)).toEqual(["t2"]);
+      expect(done.map((c) => c.resolved)).toEqual([true, true]);
+    });
+
+    it("changes nothing if any id is not a comment in the document", async () => {
+      const { session, sent } = withThreads({ t1: false, t2: false });
+      await expect(session.resolveComments("main.tex", ["t1", "elsewhere"])).rejects.toThrow(
+        /not resolved: .*elsewhere.*nothing was resolved/,
+      );
+      expect(sent).toEqual([]);
+    });
+
+    it("names the threads already resolved when a later one fails", async () => {
+      const { session, sent, failOn } = withThreads({ t1: false, t2: false });
+      failOn("t2");
+      await expect(session.resolveComments("main.tex", ["t1", "t2"])).rejects.toThrow(
+        /resolved t1 before failing; thread t2 was not resolved: 500 boom/,
+      );
+      expect(sent.map((s) => s.threadId)).toEqual(["t1"]);
+    });
+
+    it("is a no-op for an empty id list", async () => {
+      const { session, sent } = withThreads({ t1: false });
+      expect(await session.resolveComments("main.tex", [])).toEqual([]);
+      expect(sent).toEqual([]);
+    });
+  });
 });
 
 describe("reliability paths", () => {

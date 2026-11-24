@@ -379,6 +379,50 @@ export class ProjectSession {
     });
   }
 
+  /**
+   * Resolve comment threads of a document by thread id (from {@link listComments}), as the
+   * review panel's Resolve does: the comment leaves the open list but keeps its messages and
+   * can be reopened. Ids are checked against the document's anchored comments first; if any is
+   * not anchored in this document, nothing is changed. Threads already resolved are left alone.
+   * Returns the affected comments in their new state.
+   */
+  resolveComments(path: string, threadIds: string[]): Promise<Comment[]> {
+    return this.setCommentsResolved(path, threadIds, true);
+  }
+
+  /** Reopen resolved comment threads of a document; the counterpart of {@link resolveComments}. */
+  reopenComments(path: string, threadIds: string[]): Promise<Comment[]> {
+    return this.setCommentsResolved(path, threadIds, false);
+  }
+
+  private async setCommentsResolved(path: string, threadIds: string[], resolved: boolean): Promise<Comment[]> {
+    const wanted = [...new Set(threadIds)];
+    if (wanted.length === 0) return [];
+    const verb = resolved ? "resolved" : "reopened";
+    const comments = new Map((await this.listComments(path)).map((c) => [c.threadId, c]));
+    const missing = wanted.filter((id) => !comments.has(id));
+    if (missing.length > 0) {
+      throw new ClaudeleafError(
+        `not ${verb}: ${missing.length} thread id(s) are not comments in ${path} ` +
+          `(${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ", ..." : ""}); nothing was ${verb}`,
+      );
+    }
+    const doc = await this.openDoc(path);
+    const done: string[] = [];
+    for (const id of wanted) {
+      if (comments.get(id)!.resolved === resolved) continue; // already in that state
+      try {
+        await this.rest.setThreadResolved(doc.id, id, resolved);
+      } catch (e) {
+        // One request per thread, so a failure part-way leaves the earlier ones changed: say which.
+        const prefix = done.length ? `${verb} ${done.join(", ")} before failing; ` : "";
+        throw new ClaudeleafError(`${prefix}thread ${id} was not ${verb}: ${(e as Error).message}`);
+      }
+      done.push(id);
+    }
+    return wanted.map((id) => ({ ...comments.get(id)!, resolved }));
+  }
+
   // -- tracked changes --------------------------------------------------
   /**
    * List a document's pending tracked changes (review-mode suggestions), in document order,

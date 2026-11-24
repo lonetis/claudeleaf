@@ -8,7 +8,7 @@ Bring Claude (and any agent) into Overleaf. Claudeleaf is a reliable TypeScript 
 - **All your projects, one instance.** List every project you can access and edit any of them by id or name — no project configured up front.
 - **Full document control** — list documents, read text, insert at a position or line/column, replace ranges or literal text, delete ranges or lines, replace a whole document, create/delete/rename files, and **upload images** (e.g. a local W&B plot PNG) for `\includegraphics`: `claudeleaf upload <project> plot.png --folder figures` or the `overleaf_upload_file` MCP tool.
 - **Review mode (track changes).** Submit any edit as a tracked change (a suggestion) with `trackChanges` instead of a direct edit, so a human accepts or rejects it in Overleaf. Requires track changes on the project (a premium feature).
-- **Comments.** Anchor a comment to a span of text (like selecting text and commenting in the editor) and list a document's comments with their threads.
+- **Comments.** Anchor a comment to a span of text (like selecting text and commenting in the editor), list a document's comments with their threads, and resolve or reopen threads by id (`claudeleaf resolve|reopen <project> <path> <threadId>...`; MCP `overleaf_resolve_comments` / `overleaf_reopen_comments`).
 - **Collaborators' suggestions are protected.** List a document's pending tracked changes with their authors (`claudeleaf changes <project> <path>`, `overleaf_list_tracked_changes`). Any edit that would change text inside a co-author's pending suggestion is refused before it is sent, instead of silently rewriting it (which Overleaf reports to the author as a rejected suggestion). Your own suggestions stay editable: editing inside one extends or shrinks it, as in the Overleaf editor. Override with `overwriteTrackedChanges` (SDK, MCP) / `--overwrite-tracked-changes` (CLI); the MCP tools tell an agent to use it only when the user explicitly asked to override a co-author's suggestion.
 - **Accept suggestions.** Accept pending tracked changes by id, like the review panel's Accept (`claudeleaf accept <project> <path> <id>...`, `--all`, `--before 2026-10-15`; MCP `overleaf_accept_tracked_changes`). `changes` without a path lists the whole project.
 - **Compile & error logs** — trigger a LaTeX recompile and get back the status plus the parsed errors and warnings (with file and line), or the full raw log.
@@ -63,7 +63,8 @@ npx claudeleaf replace "My Paper" main.tex "foo" "bar" --track-changes
 # comment on the [start, end) character span (use `search` to find offsets)
 npx claudeleaf search "My Paper" main.tex "Introduction"   # -> offset 772
 npx claudeleaf comment "My Paper" main.tex 772 784 "Should this be shorter?"
-npx claudeleaf comments "My Paper" main.tex                # list comments + threads
+npx claudeleaf comments "My Paper" main.tex                # list comments + threads (with thread ids)
+npx claudeleaf resolve "My Paper" main.tex <threadId>      # resolve a thread (reopen undoes it)
 ```
 
 ### Use it with Claude Code (MCP)
@@ -80,7 +81,8 @@ The tools reuse the session from `claudeleaf login` (they won't pop a browser). 
 It can also work in **review mode** rather than editing directly — the seven tools that write
 document text (`insert_text`, `append_text`, `replace_text`, `replace_range`, `delete_range`,
 `delete_lines`, `set_document`) take `trackChanges: true` to leave a tracked suggestion — and
-comment on the text with `overleaf_add_comment` / `overleaf_list_comments`. For example:
+comment on the text with `overleaf_add_comment` / `overleaf_list_comments` (and close threads with
+`overleaf_resolve_comments` / `overleaf_reopen_comments`). For example:
 
 > "Read main.tex, then suggest a tighter abstract as tracked changes and leave a comment on
 > the title explaining why."
@@ -105,10 +107,11 @@ await client.replaceText("My Paper", "main.tex", "Your Paper", "Our Paper");
 await client.replaceText("My Paper", "main.tex", "utilise", "use", 0, { trackChanges: true });
 
 // comment on a span of text, then read the document's comments back
-await client.addComment("My Paper", "main.tex", 772, 784, "Should this be shorter?");
+const comment = await client.addComment("My Paper", "main.tex", 772, 784, "Should this be shorter?");
 for (const c of await client.listComments("My Paper", "main.tex")) {
   console.log(c.line, c.text, c.messages.map((m) => m.content));
 }
+await client.resolveComments("My Paper", "main.tex", [comment.threadId]); // reopenComments undoes it
 
 const compile = await client.compile("My Paper");
 console.log(compile.status, compile.errors); // errors carry { message, file, line }
@@ -130,6 +133,5 @@ npm run build                 # compile to dist/
   make the edit a suggestion in the first place with `--track-changes` / `trackChanges`.
 - Track changes is an Overleaf **premium** feature. On a project without it the edit still
   applies, just as a normal edit rather than a suggestion. Comments work on any project.
-- Comment threads can be created and listed, but not resolved or deleted — Overleaf does not
-  expose those routes.
+- Comment threads can be created, listed, resolved and reopened, but not deleted.
 - The cached session is a credential; it lives under `~/.claudeleaf` with restrictive permissions.
